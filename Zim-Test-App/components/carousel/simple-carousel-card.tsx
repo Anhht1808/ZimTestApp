@@ -1,5 +1,5 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated as RNAnimated, Pressable, StyleSheet, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated as RNAnimated, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ResizeMode, Video } from 'expo-av';
 import Animated, {
@@ -32,19 +32,31 @@ function SimpleCarouselCardComponent({
   onPress,
   pauseRequestId,
 }: SimpleCarouselCardProps) {
+  const isWeb = Platform.OS === 'web';
   const ACTIVE_SELECTION_DISTANCE = 0.35;
   const imageOpacity = useRef(new RNAnimated.Value(1)).current;
   const videoOpacity = useRef(new RNAnimated.Value(0)).current;
   const isSelectedRef = useRef(false);
+  const wasSelectedRef = useRef(false);
   // Ref version avoids stale closure in Video callbacks.
   const hasVideoFirstFrameRef = useRef(false);
 
   const [isSelected, setIsSelected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [selectionSessionKey, setSelectionSessionKey] = useState(0);
   const [hasVideoFirstFrame, setHasVideoFirstFrame] = useState(false);
   const [isVideoErrored, setIsVideoErrored] = useState(false);
   const [videoRetryKey, setVideoRetryKey] = useState(0);
-  const [isPosterErrored, setIsPosterErrored] = useState(false);
+  const [hasPosterFallbackExhausted, setHasPosterFallbackExhausted] = useState(false);
+  const [posterCandidateIndex, setPosterCandidateIndex] = useState(0);
+
+  const posterCandidates = useMemo(() => {
+    const orderedCandidates = isWeb
+      ? [item.imageUri, item.thumbnailUri]
+      : [item.thumbnailUri, item.imageUri];
+
+    return Array.from(new Set(orderedCandidates.filter(Boolean))) as string[];
+  }, [isWeb, item.imageUri, item.thumbnailUri]);
 
   useEffect(() => {
     const distance = Math.abs(animationValue.value);
@@ -65,6 +77,10 @@ function SimpleCarouselCardComponent({
 
   useEffect(() => {
     isSelectedRef.current = isSelected;
+    if (isSelected && !wasSelectedRef.current) {
+      setSelectionSessionKey((currentValue) => currentValue + 1);
+    }
+    wasSelectedRef.current = isSelected;
     if (!isSelected) {
       hasVideoFirstFrameRef.current = false;
       setHasVideoFirstFrame(false);
@@ -85,7 +101,8 @@ function SimpleCarouselCardComponent({
     setHasVideoFirstFrame(false);
     setIsVideoErrored(false);
     setVideoRetryKey(0);
-    setIsPosterErrored(false);
+    setHasPosterFallbackExhausted(false);
+    setPosterCandidateIndex(0);
     setIsPaused(false);
     imageOpacity.setValue(1);
     videoOpacity.setValue(0);
@@ -148,7 +165,17 @@ function SimpleCarouselCardComponent({
     onHoverStart?.(item.id);
   }, [item.id, onHoverStart]);
 
-  const posterUri = isPosterErrored ? item.imageUri : item.thumbnailUri ?? item.imageUri;
+  const posterUri = posterCandidates[posterCandidateIndex];
+
+  const handlePosterError = useCallback(() => {
+    setPosterCandidateIndex((currentIndex) => {
+      if (currentIndex < posterCandidates.length - 1) {
+        return currentIndex + 1;
+      }
+      setHasPosterFallbackExhausted(true);
+      return currentIndex;
+    });
+  }, [posterCandidates.length]);
 
   const shouldMountVideo = Boolean(item.videoUri && isSelected);
   const shouldPlayVideo = Boolean(isSelected && !isPaused);
@@ -171,28 +198,31 @@ function SimpleCarouselCardComponent({
   return (
     <Pressable onHoverIn={handleHoverStart} onHoverOut={onHoverEnd} onPress={handleCardPress} style={styles.card}>
       <RNAnimated.View style={[styles.imageLayer, { opacity: imageOpacity }]}>
-        <Image
-          cachePolicy="memory-disk"
-          contentFit="cover"
-          onError={() => setIsPosterErrored(true)}
-          placeholder={{ uri: posterUri }}
-          source={{ uri: posterUri }}
-          style={styles.image}
-          transition={180}
-        />
+        {posterUri && !hasPosterFallbackExhausted ? (
+          <Image
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            onError={handlePosterError}
+            source={{ uri: posterUri }}
+            style={styles.image}
+            transition={180}
+          />
+        ) : (
+          <View style={styles.posterFallback} />
+        )}
       </RNAnimated.View>
       {shouldMountVideo ? (
         <RNAnimated.View style={[styles.videoLayer, { opacity: videoOpacity }]}>
           <Video
-            key={`video-${item.id}-${videoRetryKey}`}
+            key={`video-${item.id}-${selectionSessionKey}-${videoRetryKey}`}
             isLooping
             isMuted
             onError={handleVideoError}
             onReadyForDisplay={handleVideoReady}
-            resizeMode={ResizeMode.COVER}
+            resizeMode={isWeb ? ResizeMode.CONTAIN : ResizeMode.COVER}
             shouldPlay={shouldPlayVideo}
             source={{ uri: item.videoUri }}
-            style={styles.video}
+            style={[styles.video, isWeb ? styles.webVideo : null]}
             useNativeControls={false}
           />
         </RNAnimated.View>
@@ -260,12 +290,19 @@ const styles = StyleSheet.create({
     height: '100%',
     width: '100%',
   },
+  posterFallback: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#202532',
+  },
   imageLayer: {
     ...StyleSheet.absoluteFillObject,
   },
   video: {
     height: '100%',
     width: '100%',
+  },
+  webVideo: {
+    backgroundColor: '#05070c',
   },
   videoLayer: {
     ...StyleSheet.absoluteFillObject,
