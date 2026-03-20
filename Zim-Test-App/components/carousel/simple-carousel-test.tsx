@@ -13,63 +13,24 @@ import { SimpleCarouselCard } from './simple-carousel-card';
 
 const NAVIGATION_FALLBACK_UNLOCK_MS = 900;
 const HOVER_NAVIGATE_DELAY_MS = 1000;
-const PRELOAD_RANGE_WEB = 2;
-const PRELOAD_RANGE_NATIVE = 1;
-const MOUNTED_VIDEO_RANGE = 2;
 
 export function SimpleCarouselTest() {
   const { items, itemHeight, itemWidth, sliderHeight, sliderWidth } = useSimpleCarousel();
   const carouselRef = useRef<ICarouselInstance>(null);
   const activeIndexRef = useRef(0);
-  const [activeIndex, setActiveIndex] = useState(0);
   const [hoverLoadingItemId, setHoverLoadingItemId] = useState<string | null>(null);
+  const [pauseRequestId, setPauseRequestId] = useState(0);
   const isNavigatingRef = useRef(false);
   const queuedTargetIndexRef = useRef<number | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCaptureProps = useCarouselWheel(carouselRef);
 
-  const carouselLayoutKey = useMemo(
-    () => `carousel-${Math.round(sliderWidth)}x${Math.round(sliderHeight)}-${Math.round(itemWidth)}x${Math.round(itemHeight)}`,
-    [itemHeight, itemWidth, sliderHeight, sliderWidth]
-  );
-
   const fullScreenContainerStyle = useMemo(
     () => ({ height: sliderHeight, width: sliderWidth }),
     [sliderHeight, sliderWidth]
   );
-  const currentItemId = items[activeIndex]?.id;
-  const preloadRange = Platform.OS === 'web' ? PRELOAD_RANGE_WEB : PRELOAD_RANGE_NATIVE;
   const itemIndexById = useMemo(() => new Map(items.map((item, index) => [item.id, index])), [items]);
-
-  // Set of item IDs that should buffer their video before becoming current.
-  const preloadItemIds = useMemo(() => {
-    if (!items.length) return new Set<string>();
-    const total = items.length;
-    const ids = new Set<string>();
-    for (let offset = 1; offset <= preloadRange; offset++) {
-      const prevId = items[(activeIndex - offset + total) % total]?.id;
-      const nextId = items[(activeIndex + offset) % total]?.id;
-      if (prevId) ids.add(prevId);
-      if (nextId) ids.add(nextId);
-    }
-    return ids;
-  }, [activeIndex, items, preloadRange]);
-
-  const mountedVideoItemIds = useMemo(() => {
-    if (!items.length) return new Set<string>();
-    const total = items.length;
-    const ids = new Set<string>();
-    ids.add(items[activeIndex]?.id ?? '');
-    for (let offset = 1; offset <= MOUNTED_VIDEO_RANGE; offset++) {
-      const prevId = items[(activeIndex - offset + total) % total]?.id;
-      const nextId = items[(activeIndex + offset) % total]?.id;
-      if (prevId) ids.add(prevId);
-      if (nextId) ids.add(nextId);
-    }
-    ids.delete('');
-    return ids;
-  }, [activeIndex, items]);
 
   const getCurrentCarouselIndex = useCallback(() => {
     const runtimeIndex = carouselRef.current?.getCurrentIndex?.();
@@ -153,26 +114,28 @@ export function SimpleCarouselTest() {
     [itemIndexById, navigateToTargetIndex]
   );
 
+  const requestPauseCurrentVideo = useCallback(() => {
+    setPauseRequestId((currentValue) => currentValue + 1);
+  }, []);
+
   const renderItem = useCallback<CarouselRenderItem<SimpleCarouselItem>>(
     ({ animationValue, item }) => (
       <SimpleCarouselCard
         animationValue={animationValue}
-        isCurrent={currentItemId === item.id}
         isHoverLoading={hoverLoadingItemId === item.id}
         item={item}
         onHoverEnd={onCardHoverEnd}
         onHoverStart={onCardHoverStart}
         onPress={onCardPress}
-        shouldKeepVideoMounted={mountedVideoItemIds.has(item.id)}
-        shouldPreload={preloadItemIds.has(item.id)}
+        pauseRequestId={pauseRequestId}
       />
     ),
-    [currentItemId, hoverLoadingItemId, mountedVideoItemIds, onCardHoverEnd, onCardHoverStart, onCardPress, preloadItemIds]
+    [hoverLoadingItemId, onCardHoverEnd, onCardHoverStart, onCardPress, pauseRequestId]
   );
 
   useEffect(() => {
-    // Orientation/layout changes can leave loop/parallax internal cache stale.
-    // Reset transient navigation state so remount starts from a clean state.
+    // Layout changes can leave gesture/timer state stale; reset transient state
+    // and sync back to the current index without remounting the whole carousel.
     isNavigatingRef.current = false;
     queuedTargetIndexRef.current = null;
     setHoverLoadingItemId(null);
@@ -181,7 +144,15 @@ export function SimpleCarouselTest() {
       clearTimeout(unlockTimerRef.current);
       unlockTimerRef.current = null;
     }
-  }, [carouselLayoutKey, clearHoverTimer]);
+
+    const frameId = requestAnimationFrame(() => {
+      carouselRef.current?.scrollTo({ animated: false, index: activeIndexRef.current });
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [clearHoverTimer, itemHeight, itemWidth, sliderHeight, sliderWidth]);
 
   useEffect(() => {
     return () => {
@@ -200,16 +171,15 @@ export function SimpleCarouselTest() {
         </ThemedText>
       </View>
       <Carousel
-        key={carouselLayoutKey}
         ref={carouselRef}
         data={items}
         defaultIndex={activeIndexRef.current}
         height={itemHeight}
         loop
         mode="parallax"
+        onScrollStart={requestPauseCurrentVideo}
         onSnapToItem={(index) => {
           activeIndexRef.current = index;
-          setActiveIndex(index);
           setHoverLoadingItemId(null);
           if (isNavigatingRef.current) {
             // Snap callback is the source of truth that the move finished.

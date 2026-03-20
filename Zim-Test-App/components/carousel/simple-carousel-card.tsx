@@ -5,6 +5,8 @@ import { ResizeMode, Video } from 'expo-av';
 import Animated, {
   Extrapolation,
   interpolate,
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import { ThemedText } from '@/components/themed-text';
@@ -13,34 +15,31 @@ import type { SharedValue } from 'react-native-reanimated';
 
 type SimpleCarouselCardProps = {
   animationValue: SharedValue<number>;
-  isCurrent?: boolean;
   isHoverLoading?: boolean;
   item: SimpleCarouselItem;
   onHoverEnd?: () => void;
   onHoverStart?: (itemId: string) => void;
   onPress?: (itemId: string) => void;
-  shouldKeepVideoMounted?: boolean;
-  // Preloads the video before card becomes current so it plays immediately.
-  shouldPreload?: boolean;
+  pauseRequestId: number;
 };
 
 function SimpleCarouselCardComponent({
   animationValue,
-  isCurrent = false,
   isHoverLoading = false,
   item,
   onHoverEnd,
   onHoverStart,
   onPress,
-  shouldKeepVideoMounted = false,
-  shouldPreload = false,
+  pauseRequestId,
 }: SimpleCarouselCardProps) {
+  const ACTIVE_SELECTION_DISTANCE = 0.35;
   const imageOpacity = useRef(new RNAnimated.Value(1)).current;
   const videoOpacity = useRef(new RNAnimated.Value(0)).current;
-  const isCurrentRef = useRef(isCurrent);
+  const isSelectedRef = useRef(false);
   // Ref version avoids stale closure in Video callbacks.
   const hasVideoFirstFrameRef = useRef(false);
 
+  const [isSelected, setIsSelected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [hasVideoFirstFrame, setHasVideoFirstFrame] = useState(false);
   const [isVideoErrored, setIsVideoErrored] = useState(false);
@@ -48,14 +47,37 @@ function SimpleCarouselCardComponent({
   const [isPosterErrored, setIsPosterErrored] = useState(false);
 
   useEffect(() => {
-    isCurrentRef.current = isCurrent;
-    if (isCurrent) {
-      setIsPaused(false);
-    } else {
+    const distance = Math.abs(animationValue.value);
+    const nextIsSelected = distance < ACTIVE_SELECTION_DISTANCE;
+    isSelectedRef.current = nextIsSelected;
+    setIsSelected(nextIsSelected);
+  }, [animationValue]);
+
+  useAnimatedReaction(
+    () => Math.abs(animationValue.value) < ACTIVE_SELECTION_DISTANCE,
+    (nextIsSelected, previousIsSelected) => {
+      if (previousIsSelected === null || nextIsSelected !== previousIsSelected) {
+        runOnJS(setIsSelected)(nextIsSelected);
+      }
+    },
+    [animationValue]
+  );
+
+  useEffect(() => {
+    isSelectedRef.current = isSelected;
+    if (!isSelected) {
+      hasVideoFirstFrameRef.current = false;
+      setHasVideoFirstFrame(false);
+      setIsVideoErrored(false);
       imageOpacity.setValue(1);
       videoOpacity.setValue(0);
     }
-  }, [imageOpacity, isCurrent, videoOpacity]);
+  }, [imageOpacity, isSelected, videoOpacity]);
+
+  useEffect(() => {
+    if (!pauseRequestId || !isSelectedRef.current) return;
+    setIsPaused(true);
+  }, [pauseRequestId]);
 
   // Full reset when the item data changes (switching to a different story).
   useEffect(() => {
@@ -76,13 +98,12 @@ function SimpleCarouselCardComponent({
     ]).start();
   }, [imageOpacity, videoOpacity]);
 
-  // When card becomes current and video was already buffered during preload,
-  // crossfade immediately without waiting for onReadyForDisplay.
+  // Once the selected card has its first video frame, fade from thumbnail to video.
   useEffect(() => {
-    if (isCurrent && hasVideoFirstFrame) {
+    if (isSelected && hasVideoFirstFrame) {
       doImageToVideoCrossfade();
     }
-  }, [doImageToVideoCrossfade, hasVideoFirstFrame, isCurrent]);
+  }, [doImageToVideoCrossfade, hasVideoFirstFrame, isSelected]);
 
   const handleVideoReady = useCallback(() => {
     // Guard against duplicate calls from the Video component.
@@ -90,8 +111,7 @@ function SimpleCarouselCardComponent({
     hasVideoFirstFrameRef.current = true;
     setHasVideoFirstFrame(true);
     setIsVideoErrored(false);
-    // Only crossfade if currently active; isCurrent effect handles the preload case.
-    if (isCurrentRef.current) {
+    if (isSelectedRef.current) {
       doImageToVideoCrossfade();
     }
   }, [doImageToVideoCrossfade]);
@@ -100,14 +120,14 @@ function SimpleCarouselCardComponent({
     hasVideoFirstFrameRef.current = false;
     setIsVideoErrored(true);
     setHasVideoFirstFrame(false);
-    if (isCurrentRef.current) {
+    if (isSelectedRef.current) {
       imageOpacity.setValue(1);
       videoOpacity.setValue(0);
     }
   }, [imageOpacity, videoOpacity]);
 
   const handleCardPress = useCallback(() => {
-    if (isCurrent && item.videoUri) {
+    if (isSelected && item.videoUri) {
       if (isVideoErrored) {
         hasVideoFirstFrameRef.current = false;
         setVideoRetryKey((previous) => previous + 1);
@@ -122,7 +142,7 @@ function SimpleCarouselCardComponent({
       return;
     }
     onPress?.(item.id);
-  }, [hasVideoFirstFrame, imageOpacity, isCurrent, isVideoErrored, item.id, item.videoUri, onPress, videoOpacity]);
+  }, [hasVideoFirstFrame, imageOpacity, isSelected, isVideoErrored, item.id, item.videoUri, onPress, videoOpacity]);
 
   const handleHoverStart = useCallback(() => {
     onHoverStart?.(item.id);
@@ -130,16 +150,14 @@ function SimpleCarouselCardComponent({
 
   const posterUri = isPosterErrored ? item.imageUri : item.thumbnailUri ?? item.imageUri;
 
-  // Keep nearby videos mounted for smoother activation, but only the current item is allowed to play.
-  const shouldMountVideo = Boolean(item.videoUri && (isCurrent || shouldPreload || shouldKeepVideoMounted));
-  const shouldPlayVideo = Boolean(isCurrent && !isPaused);
+  const shouldMountVideo = Boolean(item.videoUri && isSelected);
+  const shouldPlayVideo = Boolean(isSelected && !isPaused);
   const animatedFrameStyle = useAnimatedStyle(() => {
     const distance = Math.abs(animationValue.value);
-    const borderOpacity = interpolate(distance, [0, 1, 2], [0.95, 0.45, 0.18], Extrapolation.CLAMP);
     const scale = interpolate(distance, [0, 1, 2], [1, 0.98, 0.965], Extrapolation.CLAMP);
     return {
-      borderColor: `rgba(255,255,255,${borderOpacity})`,
-      opacity: interpolate(distance, [0, 1.5], [1, 0.75], Extrapolation.CLAMP),
+      borderColor: 'rgba(255,255,255,0.95)',
+      opacity: interpolate(distance, [0, ACTIVE_SELECTION_DISTANCE, ACTIVE_SELECTION_DISTANCE + 0.05], [1, 1, 0], Extrapolation.CLAMP),
       transform: [{ scale }],
     };
   }, [animationValue]);
@@ -186,7 +204,7 @@ function SimpleCarouselCardComponent({
           <ActivityIndicator color="#ffffff" size="small" />
         </View>
       ) : null}
-      {isCurrent && item.videoUri && isVideoErrored ? (
+      {isSelected && item.videoUri && isVideoErrored ? (
         <View style={styles.videoErrorOverlay}>
           <ThemedText style={styles.videoErrorText}>Video error. Tap to retry.</ThemedText>
         </View>
@@ -200,7 +218,7 @@ function SimpleCarouselCardComponent({
       <ThemedText type="defaultSemiBold" style={styles.topTag}>
         {item.id}
       </ThemedText>
-      {isCurrent && item.videoUri && hasVideoFirstFrame ? (
+      {isSelected && item.videoUri && hasVideoFirstFrame ? (
         <View style={styles.videoStateBadge}>
           <ThemedText style={styles.videoStateText}>{isPaused ? 'Play' : 'Pause'}</ThemedText>
         </View>
@@ -222,11 +240,9 @@ function areItemsEqual(previous: SimpleCarouselItem, next: SimpleCarouselItem) {
 
 export const SimpleCarouselCard = memo(SimpleCarouselCardComponent, (previousProps, nextProps) => {
   return (
-    previousProps.isCurrent === nextProps.isCurrent &&
     previousProps.isHoverLoading === nextProps.isHoverLoading &&
-    previousProps.shouldKeepVideoMounted === nextProps.shouldKeepVideoMounted &&
-    previousProps.shouldPreload === nextProps.shouldPreload &&
     previousProps.animationValue === nextProps.animationValue &&
+    previousProps.pauseRequestId === nextProps.pauseRequestId &&
     areItemsEqual(previousProps.item, nextProps.item)
   );
 });
