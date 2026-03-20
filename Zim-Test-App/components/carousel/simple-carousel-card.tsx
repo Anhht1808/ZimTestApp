@@ -1,15 +1,16 @@
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ThemedText } from '@/components/themed-text';
 import { SimpleCarouselItem } from '@/hooks/use-simple-carousel';
 
 type SimpleCarouselCardProps = {
   item: SimpleCarouselItem;
+  onPress?: () => void;
 };
 
-export function SimpleCarouselCard({ item }: SimpleCarouselCardProps) {
+export function SimpleCarouselCard({ item, onPress }: SimpleCarouselCardProps) {
   return (
-    <View style={styles.card}>
+    <Pressable onPress={onPress} style={styles.card}>
       <Image contentFit="cover" source={{ uri: item.imageUri }} style={styles.image} />
       <View style={styles.overlay} />
       <View style={styles.content}>
@@ -23,7 +24,7 @@ export function SimpleCarouselCard({ item }: SimpleCarouselCardProps) {
       <ThemedText type="defaultSemiBold" style={styles.topTag}>
         {item.id}
       </ThemedText>
-    </View>
+    </Pressable>
   );
 }
 
@@ -36,7 +37,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
-    height:'100%'
+    height: '100%',
   },
   image: {
     height: '100%',
@@ -66,26 +67,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.9)',
     fontSize: 12,
     lineHeight: 18,
-  },
-  label: {
-    color: '#ffffff',
-    fontWeight: '700',
-  },
-  one: {
-    backgroundColor: '#2563eb',
-  },
-  two: {
-    backgroundColor: '#16a34a',
-  },
-  three: {
-    backgroundColor: '#ea580c',
-  },
-  four: {
-    backgroundColor: '#7c3aed',
-  },
-  five: {
-    backgroundColor: '#dc2626',
-    width: '100%',
   },
 });
 

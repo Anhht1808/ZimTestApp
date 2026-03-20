@@ -1,7 +1,6 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import Carousel, { type ICarouselInstance } from 'react-native-reanimated-carousel';
-import type { SharedValue } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { useCarouselWheel } from '@/hooks/use-carousel-wheel';
@@ -9,23 +8,83 @@ import { useSimpleCarousel, type SimpleCarouselItem } from '@/hooks/use-simple-c
 
 import { SimpleCarouselCard } from './simple-carousel-card';
 
+const NAVIGATION_FALLBACK_UNLOCK_MS = 900;
+
 export function SimpleCarouselTest() {
   const { items, itemHeight, itemWidth, sliderHeight, sliderWidth } = useSimpleCarousel();
   const carouselRef = useRef<ICarouselInstance>(null);
+  const activeIndexRef = useRef(0);
+  const isNavigatingRef = useRef(false);
+  const queuedTargetIndexRef = useRef<number | null>(null);
+  const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCaptureProps = useCarouselWheel(carouselRef);
   const fullScreenContainerStyle = useMemo(
     () => ({ height: sliderHeight, width: sliderWidth }),
     [sliderHeight, sliderWidth]
   );
 
+  const getCurrentCarouselIndex = useCallback(() => {
+    const runtimeIndex = carouselRef.current?.getCurrentIndex?.();
+    if (typeof runtimeIndex === 'number' && Number.isFinite(runtimeIndex)) {
+      return runtimeIndex;
+    }
+    return activeIndexRef.current;
+  }, []);
+
+  const navigateToTargetIndex = useCallback(
+    (targetIndex: number) => {
+      if (targetIndex < 0) return;
+
+      if (isNavigatingRef.current) {
+        queuedTargetIndexRef.current = targetIndex;
+        return;
+      }
+
+      const total = items.length;
+      const currentIndex = getCurrentCarouselIndex();
+      const forwardSteps = (targetIndex - currentIndex + total) % total;
+      const backwardSteps = (currentIndex - targetIndex + total) % total;
+      const stepCount = forwardSteps <= backwardSteps ? forwardSteps : -backwardSteps;
+      if (!stepCount) return;
+
+      isNavigatingRef.current = true;
+      carouselRef.current?.scrollTo({ animated: true, count: stepCount });
+
+      if (unlockTimerRef.current) {
+        clearTimeout(unlockTimerRef.current);
+      }
+      unlockTimerRef.current = setTimeout(() => {
+        isNavigatingRef.current = false;
+        const queuedTarget = queuedTargetIndexRef.current;
+        queuedTargetIndexRef.current = null;
+        if (queuedTarget !== null && queuedTarget !== getCurrentCarouselIndex()) {
+          navigateToTargetIndex(queuedTarget);
+        }
+      }, NAVIGATION_FALLBACK_UNLOCK_MS);
+    },
+    [getCurrentCarouselIndex, items.length]
+  );
+
   const renderItem = useCallback(
-    ({ item }: { item: SimpleCarouselItem; animationValue: SharedValue<number> }) => (
+    ({ item }: { item: SimpleCarouselItem; index: number }) => (
       <SimpleCarouselCard
         item={item}
+        onPress={() => {
+          const targetIndex = items.findIndex((entry) => entry.id === item.id);
+          navigateToTargetIndex(targetIndex);
+        }}
       />
     ),
-    []
+    [items, navigateToTargetIndex]
   );
+
+  useEffect(() => {
+    return () => {
+      if (unlockTimerRef.current) {
+        clearTimeout(unlockTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <View style={[styles.container, fullScreenContainerStyle]} {...wheelCaptureProps}>
@@ -37,11 +96,24 @@ export function SimpleCarouselTest() {
       <Carousel
         ref={carouselRef}
         autoPlay={Platform.OS === 'web'}
-        autoPlayInterval={6000}
         data={items}
         height={itemHeight}
         loop
         mode="parallax"
+        onSnapToItem={(index) => {
+          activeIndexRef.current = index;
+          if (isNavigatingRef.current) {
+            isNavigatingRef.current = false;
+            if (unlockTimerRef.current) {
+              clearTimeout(unlockTimerRef.current);
+            }
+            const queuedTarget = queuedTargetIndexRef.current;
+            queuedTargetIndexRef.current = null;
+            if (queuedTarget !== null && queuedTarget !== index) {
+              navigateToTargetIndex(queuedTarget);
+            }
+          }
+        }}
         pagingEnabled
         renderItem={renderItem}
         style={styles.carousel}
