@@ -25,7 +25,15 @@ export function SimpleCarouselCard({
   const inactiveBackdropOpacity = useRef(new Animated.Value(isCurrent ? 0 : 1)).current;
   const imageOpacity = useRef(new Animated.Value(1)).current;
   const videoOpacity = useRef(new Animated.Value(0)).current;
+  const isCurrentRef = useRef(isCurrent);
   const [isPaused, setIsPaused] = useState(false);
+  const [hasVideoBeenActivated, setHasVideoBeenActivated] = useState(false);
+  const [hasVideoRenderedFrame, setHasVideoRenderedFrame] = useState(false);
+  const [isPosterErrored, setIsPosterErrored] = useState(false);
+
+  useEffect(() => {
+    isCurrentRef.current = isCurrent;
+  }, [isCurrent]);
 
   useEffect(() => {
     // Fade inactive backdrop instead of toggling abruptly to avoid visible flicker.
@@ -37,12 +45,20 @@ export function SimpleCarouselCard({
   }, [inactiveBackdropOpacity, isCurrent]);
 
   useEffect(() => {
-    if (!isCurrent) {
-      setIsPaused(false);
-      imageOpacity.setValue(1);
-      videoOpacity.setValue(0);
+    setHasVideoBeenActivated(false);
+    setHasVideoRenderedFrame(false);
+    setIsPosterErrored(false);
+    setIsPaused(false);
+    imageOpacity.setValue(1);
+    videoOpacity.setValue(0);
+  }, [imageOpacity, item.id, videoOpacity]);
+
+  useEffect(() => {
+    if (isCurrent && item.videoUri && !hasVideoBeenActivated) {
+      // Lazy-activate video only when card first becomes current.
+      setHasVideoBeenActivated(true);
     }
-  }, [imageOpacity, isCurrent, videoOpacity]);
+  }, [hasVideoBeenActivated, isCurrent, item.videoUri]);
 
   const togglePauseCurrentVideo = () => {
     setIsPaused((previous) => !previous);
@@ -57,6 +73,10 @@ export function SimpleCarouselCard({
   };
 
   const handleVideoReady = () => {
+    // Guard late events: if user already swiped away, keep image visible.
+    if (!isCurrentRef.current && !hasVideoBeenActivated) return;
+    setHasVideoRenderedFrame(true);
+
     // Cross-fade from poster image to video once the first frame is ready.
     Animated.parallel([
       Animated.timing(imageOpacity, {
@@ -72,19 +92,34 @@ export function SimpleCarouselCard({
     ]).start();
   };
 
+  const posterUri = isPosterErrored
+    ? item.imageUri
+    : item.thumbnailUri ?? item.imageUri;
+
+  const shouldMountVideo = Boolean(item.videoUri && hasVideoBeenActivated);
+  const shouldPlayVideo = Boolean(isCurrent && !isPaused);
+
   return (
     <Pressable onHoverIn={onHoverStart} onHoverOut={onHoverEnd} onPress={handleCardPress} style={styles.card}>
       <Animated.View style={[styles.imageLayer, { opacity: imageOpacity }]}>
-        <Image contentFit="cover" source={{ uri: item.imageUri }} style={styles.image} />
+        <Image
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          onError={() => setIsPosterErrored(true)}
+          placeholder={{ uri: posterUri }}
+          source={{ uri: posterUri }}
+          style={styles.image}
+          transition={180}
+        />
       </Animated.View>
-      {isCurrent && item.videoUri ? (
+      {shouldMountVideo ? (
         <Animated.View style={[styles.videoLayer, { opacity: videoOpacity }]}>
           <Video
             isLooping
             isMuted
             onReadyForDisplay={handleVideoReady}
             resizeMode={ResizeMode.COVER}
-            shouldPlay={!isPaused}
+            shouldPlay={shouldPlayVideo}
             source={{ uri: item.videoUri }}
             style={styles.video}
             useNativeControls={false}
@@ -110,7 +145,7 @@ export function SimpleCarouselCard({
       <ThemedText type="defaultSemiBold" style={styles.topTag}>
         {item.id}
       </ThemedText>
-      {isCurrent && item.videoUri ? (
+      {isCurrent && item.videoUri && hasVideoRenderedFrame ? (
         <View style={styles.videoStateBadge}>
           <ThemedText style={styles.videoStateText}>
             {isPaused ? 'Play' : 'Pause'}
