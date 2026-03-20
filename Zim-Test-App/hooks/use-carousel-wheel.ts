@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import type { ICarouselInstance } from 'react-native-reanimated-carousel';
 
 const WHEEL_DELTA_THRESHOLD = 2;
-const WHEEL_COOLDOWN_MS = 500;
+const WHEEL_COOLDOWN_MS = 200;
 const WHEEL_GESTURE_END_MS = 180;
 
 type WheelCaptureProps = {

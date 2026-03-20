@@ -5,7 +5,6 @@ import type { SharedValue } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { useCarouselWheel } from '@/hooks/use-carousel-wheel';
-import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useSimpleCarousel, type SimpleCarouselItem } from '@/hooks/use-simple-carousel';
 
 import { SimpleCarouselCard } from './simple-carousel-card';
@@ -13,7 +12,6 @@ import { SimpleCarouselCard } from './simple-carousel-card';
 export function SimpleCarouselTest() {
   const { items, itemHeight, itemWidth, sliderHeight, sliderWidth } = useSimpleCarousel();
   const carouselRef = useRef<ICarouselInstance>(null);
-  const isReducedMotionEnabled = useReducedMotion();
   const wheelCaptureProps = useCarouselWheel(carouselRef);
   const fullScreenContainerStyle = useMemo(
     () => ({ height: sliderHeight, width: sliderWidth }),
@@ -21,15 +19,12 @@ export function SimpleCarouselTest() {
   );
 
   const renderItem = useCallback(
-    ({ item, animationValue }: { item: SimpleCarouselItem; animationValue: SharedValue<number> }) => (
+    ({ item }: { item: SimpleCarouselItem; animationValue: SharedValue<number> }) => (
       <SimpleCarouselCard
-        animationValue={animationValue}
-        cardHeight={itemHeight}
-        isReducedMotionEnabled={isReducedMotionEnabled}
         item={item}
       />
     ),
-    [isReducedMotionEnabled, itemHeight]
+    []
   );
 
   return (
@@ -48,7 +43,6 @@ export function SimpleCarouselTest() {
         loop
         mode="parallax"
         pagingEnabled
-        scrollAnimationDuration={isReducedMotionEnabled ? 360 : 520}
         renderItem={renderItem}
         style={styles.carousel}
         windowSize={5}
