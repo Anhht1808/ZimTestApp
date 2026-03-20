@@ -1,11 +1,18 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Animated as RNAnimated, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ResizeMode, Video } from 'expo-av';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
 import { ThemedText } from '@/components/themed-text';
 import { SimpleCarouselItem } from '@/hooks/use-simple-carousel';
+import type { SharedValue } from 'react-native-reanimated';
 
 type SimpleCarouselCardProps = {
+  animationValue: SharedValue<number>;
   isCurrent?: boolean;
   isHoverLoading?: boolean;
   item: SimpleCarouselItem;
@@ -18,6 +25,7 @@ type SimpleCarouselCardProps = {
 };
 
 function SimpleCarouselCardComponent({
+  animationValue,
   isCurrent = false,
   isHoverLoading = false,
   item,
@@ -27,8 +35,8 @@ function SimpleCarouselCardComponent({
   shouldKeepVideoMounted = false,
   shouldPreload = false,
 }: SimpleCarouselCardProps) {
-  const imageOpacity = useRef(new Animated.Value(1)).current;
-  const videoOpacity = useRef(new Animated.Value(0)).current;
+  const imageOpacity = useRef(new RNAnimated.Value(1)).current;
+  const videoOpacity = useRef(new RNAnimated.Value(0)).current;
   const isCurrentRef = useRef(isCurrent);
   // Ref version avoids stale closure in Video callbacks.
   const hasVideoFirstFrameRef = useRef(false);
@@ -62,9 +70,9 @@ function SimpleCarouselCardComponent({
   }, [imageOpacity, item.id, videoOpacity]);
 
   const doImageToVideoCrossfade = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(imageOpacity, { duration: 260, toValue: 0, useNativeDriver: true }),
-      Animated.timing(videoOpacity, { duration: 260, toValue: 1, useNativeDriver: true }),
+    RNAnimated.parallel([
+      RNAnimated.timing(imageOpacity, { duration: 260, toValue: 0, useNativeDriver: true }),
+      RNAnimated.timing(videoOpacity, { duration: 260, toValue: 1, useNativeDriver: true }),
     ]).start();
   }, [imageOpacity, videoOpacity]);
 
@@ -125,15 +133,26 @@ function SimpleCarouselCardComponent({
   // Keep nearby videos mounted for smoother activation, but only the current item is allowed to play.
   const shouldMountVideo = Boolean(item.videoUri && (isCurrent || shouldPreload || shouldKeepVideoMounted));
   const shouldPlayVideo = Boolean(isCurrent && !isPaused);
+  const animatedFrameStyle = useAnimatedStyle(() => {
+    const distance = Math.abs(animationValue.value);
+    const borderOpacity = interpolate(distance, [0, 1, 2], [0.95, 0.45, 0.18], Extrapolation.CLAMP);
+    const scale = interpolate(distance, [0, 1, 2], [1, 0.98, 0.965], Extrapolation.CLAMP);
+    return {
+      borderColor: `rgba(255,255,255,${borderOpacity})`,
+      opacity: interpolate(distance, [0, 1.5], [1, 0.75], Extrapolation.CLAMP),
+      transform: [{ scale }],
+    };
+  }, [animationValue]);
+  const animatedOverlayStyle = useAnimatedStyle(() => {
+    const distance = Math.abs(animationValue.value);
+    return {
+      backgroundColor: `rgba(8, 8, 12, ${interpolate(distance, [0, 1, 2], [0.18, 0.32, 0.42], Extrapolation.CLAMP)})`,
+    };
+  }, [animationValue]);
 
   return (
-    <Pressable
-      onHoverIn={handleHoverStart}
-      onHoverOut={onHoverEnd}
-      onPress={handleCardPress}
-      style={[styles.card, isCurrent ? styles.currentCard : styles.inactiveCard]}
-    >
-      <Animated.View style={[styles.imageLayer, { opacity: imageOpacity }]}>
+    <Pressable onHoverIn={handleHoverStart} onHoverOut={onHoverEnd} onPress={handleCardPress} style={styles.card}>
+      <RNAnimated.View style={[styles.imageLayer, { opacity: imageOpacity }]}>
         <Image
           cachePolicy="memory-disk"
           contentFit="cover"
@@ -143,9 +162,9 @@ function SimpleCarouselCardComponent({
           style={styles.image}
           transition={180}
         />
-      </Animated.View>
+      </RNAnimated.View>
       {shouldMountVideo ? (
-        <Animated.View style={[styles.videoLayer, { opacity: videoOpacity }]}>
+        <RNAnimated.View style={[styles.videoLayer, { opacity: videoOpacity }]}>
           <Video
             key={`video-${item.id}-${videoRetryKey}`}
             isLooping
@@ -158,9 +177,10 @@ function SimpleCarouselCardComponent({
             style={styles.video}
             useNativeControls={false}
           />
-        </Animated.View>
+        </RNAnimated.View>
       ) : null}
-      <View style={[styles.overlay, isCurrent ? styles.currentOverlay : styles.inactiveOverlay]} />
+      <Animated.View pointerEvents="none" style={[styles.overlay, animatedOverlayStyle]} />
+      <Animated.View pointerEvents="none" style={[styles.activeFrame, animatedFrameStyle]} />
       {isHoverLoading ? (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#ffffff" size="small" />
@@ -206,6 +226,7 @@ export const SimpleCarouselCard = memo(SimpleCarouselCardComponent, (previousPro
     previousProps.isHoverLoading === nextProps.isHoverLoading &&
     previousProps.shouldKeepVideoMounted === nextProps.shouldKeepVideoMounted &&
     previousProps.shouldPreload === nextProps.shouldPreload &&
+    previousProps.animationValue === nextProps.animationValue &&
     areItemsEqual(previousProps.item, nextProps.item)
   );
 });
@@ -214,21 +235,10 @@ const styles = StyleSheet.create({
   card: {
     alignItems: 'center',
     borderRadius: 16,
-    borderWidth: 2,
     height: '100%',
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
-  },
-  currentCard: {
-    borderColor: 'rgba(255,255,255,0.9)',
-    shadowColor: '#f8fafc',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-  },
-  inactiveCard: {
-    borderColor: 'rgba(255,255,255,0.38)',
   },
   image: {
     height: '100%',
@@ -247,11 +257,10 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
   },
-  currentOverlay: {
-    backgroundColor: 'rgba(8, 8, 12, 0.2)',
-  },
-  inactiveOverlay: {
-    backgroundColor: 'rgba(8, 8, 12, 0.35)',
+  activeFrame: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+    borderWidth: 2,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

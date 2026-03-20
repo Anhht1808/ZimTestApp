@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
-import Carousel, { type ICarouselInstance } from 'react-native-reanimated-carousel';
+import Carousel, {
+  type CarouselRenderItem,
+  type ICarouselInstance,
+} from 'react-native-reanimated-carousel';
 
 import { ThemedText } from '@/components/themed-text';
 import { useCarouselWheel } from '@/hooks/use-carousel-wheel';
@@ -150,9 +153,10 @@ export function SimpleCarouselTest() {
     [itemIndexById, navigateToTargetIndex]
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: SimpleCarouselItem; index: number }) => (
+  const renderItem = useCallback<CarouselRenderItem<SimpleCarouselItem>>(
+    ({ animationValue, item }) => (
       <SimpleCarouselCard
+        animationValue={animationValue}
         isCurrent={currentItemId === item.id}
         isHoverLoading={hoverLoadingItemId === item.id}
         item={item}
