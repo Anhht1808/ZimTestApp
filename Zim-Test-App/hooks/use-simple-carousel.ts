@@ -95,12 +95,11 @@ const CARD_RATIO_WIDTH = 9;
 const CARD_RATIO_HEIGHT = 16;
 
 export function useSimpleCarousel() {
-  const { width, height } = useWindowDimensions();
+  const { width : sliderWidth , height : sliderHeight  } = useWindowDimensions();
   const items = useMemo(() => BASE_ITEMS, []);
-  const scaleValue = useMemo(() => Math.min(width > 500 ? 0.9 : 0.5), [width]);
-  const sliderWidth = useMemo(() => Math.max(width), [width]);
-  const sliderHeight = useMemo(() => Math.max(height), [height]);
-  const itemHeight = useMemo(() => Math.floor(height * scaleValue), [height, scaleValue]);
+  const scaleValue = useMemo(() => (sliderWidth > 500 ? 0.9 : 0.5), [sliderWidth]);
+  // Keep story cards in a fixed portrait ratio (9:16) across devices.
+  const itemHeight = useMemo(() => Math.floor(sliderHeight * scaleValue), [sliderHeight, scaleValue]);
   const itemWidth = useMemo(
     () => Math.floor((itemHeight * CARD_RATIO_WIDTH) / CARD_RATIO_HEIGHT),
     [itemHeight]

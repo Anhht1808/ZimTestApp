@@ -44,6 +44,7 @@ export function SimpleCarouselTest() {
       if (targetIndex < 0) return;
 
       if (isNavigatingRef.current) {
+        // Queue only the latest target while current transition is running.
         queuedTargetIndexRef.current = targetIndex;
         return;
       }
@@ -63,6 +64,7 @@ export function SimpleCarouselTest() {
         clearTimeout(unlockTimerRef.current);
       }
       unlockTimerRef.current = setTimeout(() => {
+        // Fallback unlock in case onSnapToItem is skipped on orientation transitions.
         isNavigatingRef.current = false;
         const queuedTarget = queuedTargetIndexRef.current;
         queuedTargetIndexRef.current = null;
@@ -91,6 +93,7 @@ export function SimpleCarouselTest() {
       clearHoverTimer();
       setHoverLoadingItemId(item.id);
       hoverTimerRef.current = setTimeout(() => {
+        // Hover preview: after delay, move carousel to hovered card.
         navigateToTargetIndex(targetIndex);
       }, HOVER_NAVIGATE_DELAY_MS);
     },
@@ -162,6 +165,7 @@ export function SimpleCarouselTest() {
           setActiveIndex(index);
           setHoverLoadingItemId(null);
           if (isNavigatingRef.current) {
+            // Snap callback is the source of truth that the move finished.
             isNavigatingRef.current = false;
             if (unlockTimerRef.current) {
               clearTimeout(unlockTimerRef.current);

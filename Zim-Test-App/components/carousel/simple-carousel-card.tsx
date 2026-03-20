@@ -28,6 +28,7 @@ export function SimpleCarouselCard({
   const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
+    // Fade inactive backdrop instead of toggling abruptly to avoid visible flicker.
     Animated.timing(inactiveBackdropOpacity, {
       duration: 240,
       toValue: isCurrent ? 0 : 1,
@@ -56,6 +57,7 @@ export function SimpleCarouselCard({
   };
 
   const handleVideoReady = () => {
+    // Cross-fade from poster image to video once the first frame is ready.
     Animated.parallel([
       Animated.timing(imageOpacity, {
         duration: 260,
