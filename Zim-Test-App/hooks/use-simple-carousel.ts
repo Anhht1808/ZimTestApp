@@ -91,8 +91,8 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
 ];
-const CARD_RATIO_WIDTH = 422;
-const CARD_RATIO_HEIGHT = 750;
+const CARD_RATIO_WIDTH = 9;
+const CARD_RATIO_HEIGHT = 16;
 
 export function useSimpleCarousel() {
   const { width, height } = useWindowDimensions();

@@ -1,88 +1,93 @@
-# ZIM Story Carousel Demo (Expo)
+# ZIM Story Carousel Demo
 
-Demo này dùng Expo + React Native Reanimated + `react-native-reanimated-carousel` để triển khai section story với hiệu ứng hover/motion mượt, ưu tiên transform/opacity và khả năng truy cập.
+Du an demo story carousel da nen tang Expo (React Native), tap trung vao motion/hover, tuong tac card, va toi uu hieu nang tren web + mobile.
 
 ## 1) Cai dat dependencies
 
+Chon 1 package manager:
+
 ```bash
+# npm
 npm install
+
+# yarn
+yarn install
+
+# pnpm
+pnpm install
 ```
 
 ## 2) Cach chay du an
 
-- Chay Expo dev server:
+### Cach 1 - Expo (khuyen nghi)
 
 ```bash
+# start dev server
+npx expo start
+
+# hoac dung script
 npm run start
 ```
 
-- Chay tren web:
+Chay nhanh theo platform:
 
 ```bash
 npm run web
-```
-
-- Chay tren Android emulator:
-
-```bash
 npm run android
-```
-
-- Chay tren iOS simulator:
-
-```bash
 npm run ios
 ```
 
-- Hoac quet QR bang Expo Go (tu man hinh `expo start`).
+### Cach 2 - React Native CLI command (khi can)
 
-## 3) Huong dan build
-
-### Android APK (preview)
+Sau khi prebuild native project:
 
 ```bash
-npx eas build -p android --profile preview
+npx expo prebuild
 ```
 
-### Android production (AAB/APK theo profile)
+Chay bang RN CLI:
 
 ```bash
-npx eas build -p android --profile production
+npx react-native run-android
+npx react-native run-ios
 ```
 
-### iOS build
+## 3) Huong dan build ung dung
+
+### Build APK (Android) bang EAS
 
 ```bash
-npx eas build -p ios --profile production
+# login + configure 1 lan
+npx eas-cli login
+npx eas-cli build:configure --platform android
+
+# build apk de test nhanh
+npx eas-cli build -p android --profile preview
 ```
 
-> Neu chua cau hinh EAS, chay `npx eas login` va `npx eas build:configure` truoc.
+### Build production Android (AAB)
 
-## 4) Mo ta giai phap
+```bash
+npx eas-cli build -p android --profile production
+```
 
-### Cong nghe lua chon
+### Build iOS
 
-- **Huong B: React Native Expo**
-- Ly do: mot codebase cho iOS/Android/Web, de demo nhanh, toi uu voi `expo-image` va `reanimated`.
+```bash
+npx eas-cli build -p ios --profile production
+```
 
-### Nhung diem ky thuat da ap dung
+Ghi chu:
+- File `eas.json` da co profile `preview` (APK) va `production`.
+- Neu can build local native sau prebuild, ban co the dung Android Studio/Xcode.
 
-- Hover motion cho item (lift + scale + overlay reveal) bang `transform` va `opacity`.
-- Parallax nhe giua image/caption theo vi tri slide.
-- 3D tilt nhe theo con tro tren web, co gioi han bien do, snap-back muot.
-- Micro-interaction cho CTA icon/text trong card.
-- Swipe story tren mobile + wheel/touchpad navigation tren web, co guard de khong skip nhieu slide.
-- Ho tro `focus` de dieu huong ban phim, state focus ro rang.
-- Ho tro `prefers-reduced-motion` / reduce motion (giam/tat animation).
-- Card giu dung ti le `422x750`, chieu cao card bang `80%` viewport.
+## 4) Mo ta giai phap va ly do lua chon
 
-### Toi uu tai nguyen
-
-- Anh su dung URL co `w` + `q` + `fm=webp`.
-- Render anh bang `expo-image` voi `cachePolicy="memory-disk"` va transition nhe.
-- Carousel `windowSize` gioi han de tranh render du.
-
-## 5) Demo nhanh
-
-- Expo project local: chay bang `npm run web` hoac Expo Go tu QR.
-- Link public Snack/Expo va APK build: cap nhat sau khi publish EAS trong moi truong cua ban.
+- **Giai phap chon:** React Native Expo + `react-native-reanimated-carousel`.
+- **Ly do:** 1 codebase cho iOS/Android/Web, setup nhanh, de demo va de maintain.
+- **Ky thuat chinh:**
+  - Carousel loop + swipe + wheel/touchpad navigation.
+  - Backdrop cho non-current item, hover loading roi navigate toi item.
+  - Current item ho tro video autoplay, fade image -> video, pause/play.
+  - Tuong tac duoc toi uu de tranh jump/skip khi click nhanh.
+  - Responsive theo orientation, card ratio `9:16`, item height theo viewport.
