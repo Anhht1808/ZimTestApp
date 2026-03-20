@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
-import { ResizeMode, Video } from 'expo-av';
 import Carousel, { type ICarouselInstance } from 'react-native-reanimated-carousel';
 
 import { ThemedText } from '@/components/themed-text';
@@ -12,28 +11,44 @@ import { SimpleCarouselCard } from './simple-carousel-card';
 const NAVIGATION_FALLBACK_UNLOCK_MS = 900;
 const HOVER_NAVIGATE_DELAY_MS = 1000;
 
+// How many items ahead/behind the active index to preload.
+const PRELOAD_RANGE = 2;
+
 export function SimpleCarouselTest() {
   const { items, itemHeight, itemWidth, sliderHeight, sliderWidth } = useSimpleCarousel();
   const carouselRef = useRef<ICarouselInstance>(null);
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [hoverLoadingItemId, setHoverLoadingItemId] = useState<string | null>(null);
-  const [preloadVideoUris, setPreloadVideoUris] = useState<string[]>([]);
   const isNavigatingRef = useRef(false);
   const queuedTargetIndexRef = useRef<number | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const preloadTimerOneRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const preloadTimerTwoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCaptureProps = useCarouselWheel(carouselRef);
+
   const carouselLayoutKey = useMemo(
     () => `carousel-${Math.round(sliderWidth)}x${Math.round(sliderHeight)}-${Math.round(itemWidth)}x${Math.round(itemHeight)}`,
     [itemHeight, itemWidth, sliderHeight, sliderWidth]
   );
+
   const fullScreenContainerStyle = useMemo(
     () => ({ height: sliderHeight, width: sliderWidth }),
     [sliderHeight, sliderWidth]
   );
+
+  // Set of item IDs that should buffer their video before becoming current.
+  const preloadItemIds = useMemo(() => {
+    if (!items.length) return new Set<string>();
+    const total = items.length;
+    const ids = new Set<string>();
+    for (let offset = 1; offset <= PRELOAD_RANGE; offset++) {
+      const prevId = items[(activeIndex - offset + total) % total]?.id;
+      const nextId = items[(activeIndex + offset) % total]?.id;
+      if (prevId) ids.add(prevId);
+      if (nextId) ids.add(nextId);
+    }
+    return ids;
+  }, [activeIndex, items]);
 
   const getCurrentCarouselIndex = useCallback(() => {
     const runtimeIndex = carouselRef.current?.getCurrentIndex?.();
@@ -67,8 +82,8 @@ export function SimpleCarouselTest() {
       if (unlockTimerRef.current) {
         clearTimeout(unlockTimerRef.current);
       }
+      // Fallback unlock in case onSnapToItem is skipped during orientation transitions.
       unlockTimerRef.current = setTimeout(() => {
-        // Fallback unlock in case onSnapToItem is skipped on orientation transitions.
         isNavigatingRef.current = false;
         const queuedTarget = queuedTargetIndexRef.current;
         queuedTargetIndexRef.current = null;
@@ -87,17 +102,6 @@ export function SimpleCarouselTest() {
     }
   }, []);
 
-  const clearPreloadTimers = useCallback(() => {
-    if (preloadTimerOneRef.current) {
-      clearTimeout(preloadTimerOneRef.current);
-      preloadTimerOneRef.current = null;
-    }
-    if (preloadTimerTwoRef.current) {
-      clearTimeout(preloadTimerTwoRef.current);
-      preloadTimerTwoRef.current = null;
-    }
-  }, []);
-
   const onCardHoverStart = useCallback(
     (item: SimpleCarouselItem) => {
       if (Platform.OS !== 'web') return;
@@ -108,7 +112,7 @@ export function SimpleCarouselTest() {
       clearHoverTimer();
       setHoverLoadingItemId(item.id);
       hoverTimerRef.current = setTimeout(() => {
-        // Hover preview: after delay, move carousel to hovered card.
+        // Hover preview: after delay, navigate carousel to hovered card.
         navigateToTargetIndex(targetIndex);
       }, HOVER_NAVIGATE_DELAY_MS);
     },
@@ -132,46 +136,15 @@ export function SimpleCarouselTest() {
           const targetIndex = items.findIndex((entry) => entry.id === item.id);
           navigateToTargetIndex(targetIndex);
         }}
+        shouldPreload={preloadItemIds.has(item.id)}
       />
     ),
-    [activeIndex, hoverLoadingItemId, items, navigateToTargetIndex, onCardHoverEnd, onCardHoverStart]
+    [activeIndex, hoverLoadingItemId, items, navigateToTargetIndex, onCardHoverEnd, onCardHoverStart, preloadItemIds]
   );
 
   useEffect(() => {
-    clearPreloadTimers();
-    setPreloadVideoUris([]);
-
-    if (!items.length) return;
-    // Preload around current item:
-    // + after 1s: previous 1 and next 1
-    // + after 2s: previous 2 and next 2
-    // This wraps automatically, so index 0 preloads the last items too.
-    const previousOneVideoUri = items[(activeIndex - 1 + items.length) % items.length]?.videoUri;
-    const nextOneVideoUri = items[(activeIndex + 1) % items.length]?.videoUri;
-    const previousTwoVideoUri = items[(activeIndex - 2 + items.length) % items.length]?.videoUri;
-    const nextTwoVideoUri = items[(activeIndex + 2) % items.length]?.videoUri;
-
-    const firstBatch = [previousOneVideoUri, nextOneVideoUri].filter(Boolean) as string[];
-    const secondBatch = [previousTwoVideoUri, nextTwoVideoUri].filter(Boolean) as string[];
-    const mergedPreloadBatch = [...firstBatch, ...secondBatch];
-
-    if (mergedPreloadBatch.length) {
-      setPreloadVideoUris((previous) =>
-        mergedPreloadBatch.reduce(
-          (accumulator, uri) => (accumulator.includes(uri) ? accumulator : [...accumulator, uri]),
-          previous
-        )
-      );
-    }
-
-    return () => {
-      clearPreloadTimers();
-    };
-  }, [activeIndex, clearPreloadTimers, items]);
-
-  useEffect(() => {
     // Orientation/layout changes can leave loop/parallax internal cache stale.
-    // Reset transient navigation state so remount starts from stable state.
+    // Reset transient navigation state so remount starts from a clean state.
     isNavigatingRef.current = false;
     queuedTargetIndexRef.current = null;
     setHoverLoadingItemId(null);
@@ -180,31 +153,27 @@ export function SimpleCarouselTest() {
       clearTimeout(unlockTimerRef.current);
       unlockTimerRef.current = null;
     }
-    clearPreloadTimers();
-    setPreloadVideoUris([]);
-  }, [carouselLayoutKey, clearHoverTimer, clearPreloadTimers]);
+  }, [carouselLayoutKey, clearHoverTimer]);
 
   useEffect(() => {
     return () => {
       clearHoverTimer();
-      clearPreloadTimers();
       if (unlockTimerRef.current) {
         clearTimeout(unlockTimerRef.current);
       }
     };
-  }, [clearHoverTimer, clearPreloadTimers]);
+  }, [clearHoverTimer]);
 
   return (
     <View style={[styles.container, fullScreenContainerStyle]} {...wheelCaptureProps}>
       <View style={styles.titleContainer}>
         <ThemedText type="subtitle" style={styles.title}>
-        Carousel style stories
+          Carousel style stories
         </ThemedText>
       </View>
       <Carousel
         key={carouselLayoutKey}
         ref={carouselRef}
-        // autoPlay={Platform.OS === 'web'}
         data={items}
         defaultIndex={activeIndexRef.current}
         height={itemHeight}
@@ -233,35 +202,21 @@ export function SimpleCarouselTest() {
         windowSize={5}
         width={itemWidth}
       />
-      <View pointerEvents="none" style={styles.preloadContainer}>
-        {preloadVideoUris.map((uri) => (
-          <Video
-            isLooping={false}
-            isMuted
-            key={`preload-${uri}`}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={false}
-            source={{ uri }}
-            style={styles.preloadVideo}
-            useNativeControls={false}
-          />
-        ))}
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    alignSelf: 'center',
+    backgroundColor: '#13141c',
+    justifyContent: 'center',
+  },
   titleContainer: {
     left: 16,
     position: 'absolute',
     top: 18,
     zIndex: 10,
-  },
-  container: {
-    alignSelf: 'center',
-    backgroundColor: '#13141c',
-    justifyContent: 'center',
   },
   title: {
     color: '#f3f4f6',
@@ -270,17 +225,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-  },
-  preloadContainer: {
-    height: 1,
-    left: -9999,
-    opacity: 0,
-    position: 'absolute',
-    top: -9999,
-    width: 1,
-  },
-  preloadVideo: {
-    height: 1,
-    width: 1,
   },
 });

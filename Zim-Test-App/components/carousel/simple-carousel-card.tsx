@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ResizeMode, Video } from 'expo-av';
@@ -12,6 +12,8 @@ type SimpleCarouselCardProps = {
   onHoverEnd?: () => void;
   onHoverStart?: () => void;
   onPress?: () => void;
+  // Preloads the video before card becomes current so it plays immediately.
+  shouldPreload?: boolean;
 };
 
 export function SimpleCarouselCard({
@@ -21,153 +23,95 @@ export function SimpleCarouselCard({
   onHoverEnd,
   onHoverStart,
   onPress,
+  shouldPreload = false,
 }: SimpleCarouselCardProps) {
-  const inactiveBackdropOpacity = useRef(new Animated.Value(isCurrent ? 0 : 1)).current;
   const imageOpacity = useRef(new Animated.Value(1)).current;
   const videoOpacity = useRef(new Animated.Value(0)).current;
   const isCurrentRef = useRef(isCurrent);
-  const videoSlowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref version avoids stale closure in Video callbacks.
+  const hasVideoFirstFrameRef = useRef(false);
+
   const [isPaused, setIsPaused] = useState(false);
-  const [hasVideoBeenActivated, setHasVideoBeenActivated] = useState(false);
-  const [hasVideoRenderedFrame, setHasVideoRenderedFrame] = useState(false);
-  const [isVideoLoading, setIsVideoLoading] = useState(false);
-  const [isVideoSlow, setIsVideoSlow] = useState(false);
+  const [hasVideoFirstFrame, setHasVideoFirstFrame] = useState(false);
   const [isVideoErrored, setIsVideoErrored] = useState(false);
   const [videoRetryKey, setVideoRetryKey] = useState(0);
   const [isPosterErrored, setIsPosterErrored] = useState(false);
-
-  const clearVideoSlowTimer = () => {
-    if (videoSlowTimerRef.current) {
-      clearTimeout(videoSlowTimerRef.current);
-      videoSlowTimerRef.current = null;
-    }
-  };
 
   useEffect(() => {
     isCurrentRef.current = isCurrent;
   }, [isCurrent]);
 
+  // Full reset when the item data changes (switching to a different story).
   useEffect(() => {
-    // Fade inactive backdrop instead of toggling abruptly to avoid visible flicker.
-    Animated.timing(inactiveBackdropOpacity, {
-      duration: 240,
-      toValue: isCurrent ? 0 : 1,
-      useNativeDriver: true,
-    }).start();
-  }, [inactiveBackdropOpacity, isCurrent]);
-
-  useEffect(() => {
-    setHasVideoBeenActivated(false);
-    setHasVideoRenderedFrame(false);
-    setIsVideoLoading(false);
-    setIsVideoSlow(false);
+    hasVideoFirstFrameRef.current = false;
+    setHasVideoFirstFrame(false);
     setIsVideoErrored(false);
     setVideoRetryKey(0);
     setIsPosterErrored(false);
     setIsPaused(false);
     imageOpacity.setValue(1);
     videoOpacity.setValue(0);
-    clearVideoSlowTimer();
   }, [imageOpacity, item.id, videoOpacity]);
 
+  const doImageToVideoCrossfade = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(imageOpacity, { duration: 260, toValue: 0, useNativeDriver: true }),
+      Animated.timing(videoOpacity, { duration: 260, toValue: 1, useNativeDriver: true }),
+    ]).start();
+  }, [imageOpacity, videoOpacity]);
+
+  // When card becomes current and video was already buffered during preload,
+  // crossfade immediately without waiting for onReadyForDisplay.
   useEffect(() => {
-    if (isCurrent && item.videoUri && !hasVideoBeenActivated) {
-      // Lazy-activate video only when card first becomes current.
-      setHasVideoBeenActivated(true);
+    if (isCurrent && hasVideoFirstFrame) {
+      doImageToVideoCrossfade();
     }
-  }, [hasVideoBeenActivated, isCurrent, item.videoUri]);
+  }, [doImageToVideoCrossfade, hasVideoFirstFrame, isCurrent]);
 
-  useEffect(() => {
-    if (!isCurrent || !hasVideoBeenActivated || hasVideoRenderedFrame || isVideoErrored) {
-      clearVideoSlowTimer();
-      setIsVideoSlow(false);
-      return;
+  const handleVideoReady = useCallback(() => {
+    // Guard against duplicate calls from the Video component.
+    if (hasVideoFirstFrameRef.current) return;
+    hasVideoFirstFrameRef.current = true;
+    setHasVideoFirstFrame(true);
+    setIsVideoErrored(false);
+    // Only crossfade if currently active; isCurrent effect handles the preload case.
+    if (isCurrentRef.current) {
+      doImageToVideoCrossfade();
     }
+  }, [doImageToVideoCrossfade]);
 
-    setIsVideoLoading(true);
-    clearVideoSlowTimer();
-    // Show explicit feedback for slow networks on Android/web.
-    videoSlowTimerRef.current = setTimeout(() => {
-      setIsVideoSlow(true);
-    }, 4000);
+  const handleVideoError = useCallback(() => {
+    hasVideoFirstFrameRef.current = false;
+    setIsVideoErrored(true);
+    setHasVideoFirstFrame(false);
+    if (isCurrentRef.current) {
+      imageOpacity.setValue(1);
+      videoOpacity.setValue(0);
+    }
+  }, [imageOpacity, videoOpacity]);
 
-    return () => {
-      clearVideoSlowTimer();
-    };
-  }, [hasVideoBeenActivated, hasVideoRenderedFrame, isCurrent, isVideoErrored]);
-
-  useEffect(() => {
-    return () => {
-      clearVideoSlowTimer();
-    };
-  }, []);
-
-  const togglePauseCurrentVideo = () => {
-    setIsPaused((previous) => !previous);
-  };
-
-  const handleCardPress = () => {
+  const handleCardPress = useCallback(() => {
     if (isCurrent && item.videoUri) {
       if (isVideoErrored) {
+        hasVideoFirstFrameRef.current = false;
         setVideoRetryKey((previous) => previous + 1);
         setIsVideoErrored(false);
-        setIsVideoSlow(false);
-        setIsVideoLoading(true);
+        setHasVideoFirstFrame(false);
         imageOpacity.setValue(1);
         videoOpacity.setValue(0);
         return;
       }
-      if (!hasVideoRenderedFrame) return;
-      togglePauseCurrentVideo();
+      if (!hasVideoFirstFrame) return;
+      setIsPaused((previous) => !previous);
       return;
     }
     onPress?.();
-  };
+  }, [hasVideoFirstFrame, imageOpacity, isCurrent, isVideoErrored, item.videoUri, onPress, videoOpacity]);
 
-  const handleVideoReady = () => {
-    // Guard late events: if user already swiped away, keep image visible.
-    if (!isCurrentRef.current && !hasVideoBeenActivated) return;
-    clearVideoSlowTimer();
-    setIsVideoErrored(false);
-    setIsVideoLoading(false);
-    setIsVideoSlow(false);
-    setHasVideoRenderedFrame(true);
+  const posterUri = isPosterErrored ? item.imageUri : item.thumbnailUri ?? item.imageUri;
 
-    // Cross-fade from poster image to video once the first frame is ready.
-    Animated.parallel([
-      Animated.timing(imageOpacity, {
-        duration: 260,
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-      Animated.timing(videoOpacity, {
-        duration: 260,
-        toValue: 1,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const handleVideoLoadStart = () => {
-    setIsVideoLoading(true);
-    setIsVideoErrored(false);
-  };
-
-  const handleVideoError = () => {
-    clearVideoSlowTimer();
-    setIsVideoErrored(true);
-    setIsVideoLoading(false);
-    setIsVideoSlow(false);
-    setHasVideoRenderedFrame(false);
-    imageOpacity.setValue(1);
-    videoOpacity.setValue(0);
-  };
-
-  const posterUri = isPosterErrored
-    ? item.imageUri
-    : item.thumbnailUri ?? item.imageUri;
-
-  const shouldMountVideo = Boolean(item.videoUri && hasVideoBeenActivated);
+  // Mount video early for preload so it buffers before the card becomes current.
+  const shouldMountVideo = Boolean(item.videoUri && (isCurrent || shouldPreload));
   const shouldPlayVideo = Boolean(isCurrent && !isPaused);
 
   return (
@@ -190,7 +134,6 @@ export function SimpleCarouselCard({
             isLooping
             isMuted
             onError={handleVideoError}
-            onLoadStart={handleVideoLoadStart}
             onReadyForDisplay={handleVideoReady}
             resizeMode={ResizeMode.COVER}
             shouldPlay={shouldPlayVideo}
@@ -201,39 +144,28 @@ export function SimpleCarouselCard({
         </Animated.View>
       ) : null}
       <View style={styles.overlay} />
-      <Animated.View pointerEvents="none" style={[styles.inactiveBackdrop, { opacity: inactiveBackdropOpacity }]} />
-      {isHoverLoading && (
+      {isHoverLoading ? (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#ffffff" size="small" />
-          <ThemedText style={styles.loadingText}>Loading...</ThemedText>
         </View>
-      )}
-      {isCurrent && item.videoUri && !hasVideoRenderedFrame && (isVideoLoading || isVideoSlow || isVideoErrored) ? (
-        <View style={styles.videoLoadingOverlay}>
-          {!isVideoErrored ? <ActivityIndicator color="#ffffff" size="small" /> : null}
-          {isVideoErrored ? (
-            <ThemedText style={styles.videoLoadingText}>
-              Video error. Please try again.
-            </ThemedText>
-          ) : null}
+      ) : null}
+      {isCurrent && item.videoUri && isVideoErrored ? (
+        <View style={styles.videoErrorOverlay}>
+          <ThemedText style={styles.videoErrorText}>Video error. Tap to retry.</ThemedText>
         </View>
       ) : null}
       <View style={styles.content}>
         <ThemedText type="defaultSemiBold" style={styles.title}>
           {item.title}
         </ThemedText>
-        <ThemedText style={styles.subtitle}>
-          {item.subtitle}
-        </ThemedText>
+        <ThemedText style={styles.subtitle}>{item.subtitle}</ThemedText>
       </View>
       <ThemedText type="defaultSemiBold" style={styles.topTag}>
         {item.id}
       </ThemedText>
-      {isCurrent && item.videoUri && hasVideoRenderedFrame ? (
+      {isCurrent && item.videoUri && hasVideoFirstFrame ? (
         <View style={styles.videoStateBadge}>
-          <ThemedText style={styles.videoStateText}>
-            {isPaused ? 'Play' : 'Pause'}
-          </ThemedText>
+          <ThemedText style={styles.videoStateText}>{isPaused ? 'Play' : 'Pause'}</ThemedText>
         </View>
       ) : null}
     </Pressable>
@@ -243,13 +175,13 @@ export function SimpleCarouselCard({
 const styles = StyleSheet.create({
   card: {
     alignItems: 'center',
-    borderRadius: 16,
     borderColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 16,
     borderWidth: 2,
+    height: '100%',
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
-    height: '100%',
   },
   image: {
     height: '100%',
@@ -269,34 +201,23 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(8, 8, 12, 0.35)',
   },
-  inactiveBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.26)',
     justifyContent: 'center',
   },
-  loadingText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 8,
-  },
-  videoLoadingOverlay: {
+  videoErrorOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.28)',
+    backgroundColor: 'rgba(0, 0, 0, 0.42)',
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
-  videoLoadingText: {
+  videoErrorText: {
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
-    marginTop: 8,
     textAlign: 'center',
   },
   content: {
@@ -335,4 +256,3 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
-
