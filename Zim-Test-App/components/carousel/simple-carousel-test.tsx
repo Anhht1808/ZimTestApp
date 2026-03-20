@@ -10,9 +10,9 @@ import { SimpleCarouselCard } from './simple-carousel-card';
 
 const NAVIGATION_FALLBACK_UNLOCK_MS = 900;
 const HOVER_NAVIGATE_DELAY_MS = 1000;
-
-// How many items ahead/behind the active index to preload.
-const PRELOAD_RANGE = 2;
+const PRELOAD_RANGE_WEB = 2;
+const PRELOAD_RANGE_NATIVE = 1;
+const MOUNTED_VIDEO_RANGE = 2;
 
 export function SimpleCarouselTest() {
   const { items, itemHeight, itemWidth, sliderHeight, sliderWidth } = useSimpleCarousel();
@@ -35,18 +35,36 @@ export function SimpleCarouselTest() {
     () => ({ height: sliderHeight, width: sliderWidth }),
     [sliderHeight, sliderWidth]
   );
+  const currentItemId = items[activeIndex]?.id;
+  const preloadRange = Platform.OS === 'web' ? PRELOAD_RANGE_WEB : PRELOAD_RANGE_NATIVE;
+  const itemIndexById = useMemo(() => new Map(items.map((item, index) => [item.id, index])), [items]);
 
   // Set of item IDs that should buffer their video before becoming current.
   const preloadItemIds = useMemo(() => {
     if (!items.length) return new Set<string>();
     const total = items.length;
     const ids = new Set<string>();
-    for (let offset = 1; offset <= PRELOAD_RANGE; offset++) {
+    for (let offset = 1; offset <= preloadRange; offset++) {
       const prevId = items[(activeIndex - offset + total) % total]?.id;
       const nextId = items[(activeIndex + offset) % total]?.id;
       if (prevId) ids.add(prevId);
       if (nextId) ids.add(nextId);
     }
+    return ids;
+  }, [activeIndex, items, preloadRange]);
+
+  const mountedVideoItemIds = useMemo(() => {
+    if (!items.length) return new Set<string>();
+    const total = items.length;
+    const ids = new Set<string>();
+    ids.add(items[activeIndex]?.id ?? '');
+    for (let offset = 1; offset <= MOUNTED_VIDEO_RANGE; offset++) {
+      const prevId = items[(activeIndex - offset + total) % total]?.id;
+      const nextId = items[(activeIndex + offset) % total]?.id;
+      if (prevId) ids.add(prevId);
+      if (nextId) ids.add(nextId);
+    }
+    ids.delete('');
     return ids;
   }, [activeIndex, items]);
 
@@ -103,20 +121,20 @@ export function SimpleCarouselTest() {
   }, []);
 
   const onCardHoverStart = useCallback(
-    (item: SimpleCarouselItem) => {
+    (itemId: string) => {
       if (Platform.OS !== 'web') return;
 
-      const targetIndex = items.findIndex((entry) => entry.id === item.id);
+      const targetIndex = itemIndexById.get(itemId) ?? -1;
       if (targetIndex < 0 || targetIndex === activeIndexRef.current) return;
 
       clearHoverTimer();
-      setHoverLoadingItemId(item.id);
+      setHoverLoadingItemId(itemId);
       hoverTimerRef.current = setTimeout(() => {
         // Hover preview: after delay, navigate carousel to hovered card.
         navigateToTargetIndex(targetIndex);
       }, HOVER_NAVIGATE_DELAY_MS);
     },
-    [clearHoverTimer, items, navigateToTargetIndex]
+    [clearHoverTimer, itemIndexById, navigateToTargetIndex]
   );
 
   const onCardHoverEnd = useCallback(() => {
@@ -124,22 +142,28 @@ export function SimpleCarouselTest() {
     setHoverLoadingItemId(null);
   }, [clearHoverTimer]);
 
+  const onCardPress = useCallback(
+    (itemId: string) => {
+      const targetIndex = itemIndexById.get(itemId) ?? -1;
+      navigateToTargetIndex(targetIndex);
+    },
+    [itemIndexById, navigateToTargetIndex]
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: SimpleCarouselItem; index: number }) => (
       <SimpleCarouselCard
-        isCurrent={items[activeIndex]?.id === item.id}
+        isCurrent={currentItemId === item.id}
         isHoverLoading={hoverLoadingItemId === item.id}
         item={item}
         onHoverEnd={onCardHoverEnd}
-        onHoverStart={() => onCardHoverStart(item)}
-        onPress={() => {
-          const targetIndex = items.findIndex((entry) => entry.id === item.id);
-          navigateToTargetIndex(targetIndex);
-        }}
+        onHoverStart={onCardHoverStart}
+        onPress={onCardPress}
+        shouldKeepVideoMounted={mountedVideoItemIds.has(item.id)}
         shouldPreload={preloadItemIds.has(item.id)}
       />
     ),
-    [activeIndex, hoverLoadingItemId, items, navigateToTargetIndex, onCardHoverEnd, onCardHoverStart, preloadItemIds]
+    [currentItemId, hoverLoadingItemId, mountedVideoItemIds, onCardHoverEnd, onCardHoverStart, onCardPress, preloadItemIds]
   );
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { ResizeMode, Video } from 'expo-av';
@@ -10,19 +10,21 @@ type SimpleCarouselCardProps = {
   isHoverLoading?: boolean;
   item: SimpleCarouselItem;
   onHoverEnd?: () => void;
-  onHoverStart?: () => void;
-  onPress?: () => void;
+  onHoverStart?: (itemId: string) => void;
+  onPress?: (itemId: string) => void;
+  shouldKeepVideoMounted?: boolean;
   // Preloads the video before card becomes current so it plays immediately.
   shouldPreload?: boolean;
 };
 
-export function SimpleCarouselCard({
+function SimpleCarouselCardComponent({
   isCurrent = false,
   isHoverLoading = false,
   item,
   onHoverEnd,
   onHoverStart,
   onPress,
+  shouldKeepVideoMounted = false,
   shouldPreload = false,
 }: SimpleCarouselCardProps) {
   const imageOpacity = useRef(new Animated.Value(1)).current;
@@ -39,7 +41,13 @@ export function SimpleCarouselCard({
 
   useEffect(() => {
     isCurrentRef.current = isCurrent;
-  }, [isCurrent]);
+    if (isCurrent) {
+      setIsPaused(false);
+    } else {
+      imageOpacity.setValue(1);
+      videoOpacity.setValue(0);
+    }
+  }, [imageOpacity, isCurrent, videoOpacity]);
 
   // Full reset when the item data changes (switching to a different story).
   useEffect(() => {
@@ -105,17 +113,26 @@ export function SimpleCarouselCard({
       setIsPaused((previous) => !previous);
       return;
     }
-    onPress?.();
-  }, [hasVideoFirstFrame, imageOpacity, isCurrent, isVideoErrored, item.videoUri, onPress, videoOpacity]);
+    onPress?.(item.id);
+  }, [hasVideoFirstFrame, imageOpacity, isCurrent, isVideoErrored, item.id, item.videoUri, onPress, videoOpacity]);
+
+  const handleHoverStart = useCallback(() => {
+    onHoverStart?.(item.id);
+  }, [item.id, onHoverStart]);
 
   const posterUri = isPosterErrored ? item.imageUri : item.thumbnailUri ?? item.imageUri;
 
-  // Mount video early for preload so it buffers before the card becomes current.
-  const shouldMountVideo = Boolean(item.videoUri && (isCurrent || shouldPreload));
+  // Keep nearby videos mounted for smoother activation, but only the current item is allowed to play.
+  const shouldMountVideo = Boolean(item.videoUri && (isCurrent || shouldPreload || shouldKeepVideoMounted));
   const shouldPlayVideo = Boolean(isCurrent && !isPaused);
 
   return (
-    <Pressable onHoverIn={onHoverStart} onHoverOut={onHoverEnd} onPress={handleCardPress} style={styles.card}>
+    <Pressable
+      onHoverIn={handleHoverStart}
+      onHoverOut={onHoverEnd}
+      onPress={handleCardPress}
+      style={[styles.card, isCurrent ? styles.currentCard : styles.inactiveCard]}
+    >
       <Animated.View style={[styles.imageLayer, { opacity: imageOpacity }]}>
         <Image
           cachePolicy="memory-disk"
@@ -143,7 +160,7 @@ export function SimpleCarouselCard({
           />
         </Animated.View>
       ) : null}
-      <View style={styles.overlay} />
+      <View style={[styles.overlay, isCurrent ? styles.currentOverlay : styles.inactiveOverlay]} />
       {isHoverLoading ? (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#ffffff" size="small" />
@@ -172,16 +189,46 @@ export function SimpleCarouselCard({
   );
 }
 
+function areItemsEqual(previous: SimpleCarouselItem, next: SimpleCarouselItem) {
+  return (
+    previous.id === next.id &&
+    previous.title === next.title &&
+    previous.subtitle === next.subtitle &&
+    previous.imageUri === next.imageUri &&
+    previous.thumbnailUri === next.thumbnailUri &&
+    previous.videoUri === next.videoUri
+  );
+}
+
+export const SimpleCarouselCard = memo(SimpleCarouselCardComponent, (previousProps, nextProps) => {
+  return (
+    previousProps.isCurrent === nextProps.isCurrent &&
+    previousProps.isHoverLoading === nextProps.isHoverLoading &&
+    previousProps.shouldKeepVideoMounted === nextProps.shouldKeepVideoMounted &&
+    previousProps.shouldPreload === nextProps.shouldPreload &&
+    areItemsEqual(previousProps.item, nextProps.item)
+  );
+});
+
 const styles = StyleSheet.create({
   card: {
     alignItems: 'center',
-    borderColor: 'rgba(255,255,255,0.55)',
     borderRadius: 16,
     borderWidth: 2,
     height: '100%',
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
+  },
+  currentCard: {
+    borderColor: 'rgba(255,255,255,0.9)',
+    shadowColor: '#f8fafc',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+  },
+  inactiveCard: {
+    borderColor: 'rgba(255,255,255,0.38)',
   },
   image: {
     height: '100%',
@@ -199,6 +246,11 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
+  },
+  currentOverlay: {
+    backgroundColor: 'rgba(8, 8, 12, 0.2)',
+  },
+  inactiveOverlay: {
     backgroundColor: 'rgba(8, 8, 12, 0.35)',
   },
   loadingOverlay: {
