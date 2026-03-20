@@ -129,6 +129,11 @@ npx eas-cli build -p ios --profile production
   * Video autoplay.
   * Hiệu ứng fade từ image → video.
   * Pause/Play video.
+* Preload video theo vùng lân cận của current index để giảm loading:
+
+  * Sau 1s preload `index - 1` và `index + 1`.
+  * Sau 2s preload `index - 2` và `index + 2`.
+  * Có vòng lặp, nên tại `index = 0` vẫn preload được item cuối.
 * Tối ưu tương tác để tránh hiện tượng jump/skip khi click nhanh.
 * Responsive theo orientation.
 * Card ratio `9:16`, chiều cao item theo viewport.

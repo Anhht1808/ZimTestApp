@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
+import { ResizeMode, Video } from 'expo-av';
 import Carousel, { type ICarouselInstance } from 'react-native-reanimated-carousel';
 
 import { ThemedText } from '@/components/themed-text';
@@ -17,9 +18,12 @@ export function SimpleCarouselTest() {
   const activeIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [hoverLoadingItemId, setHoverLoadingItemId] = useState<string | null>(null);
+  const [preloadVideoUris, setPreloadVideoUris] = useState<string[]>([]);
   const isNavigatingRef = useRef(false);
   const queuedTargetIndexRef = useRef<number | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const preloadTimerOneRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const preloadTimerTwoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCaptureProps = useCarouselWheel(carouselRef);
   const carouselLayoutKey = useMemo(
@@ -83,6 +87,17 @@ export function SimpleCarouselTest() {
     }
   }, []);
 
+  const clearPreloadTimers = useCallback(() => {
+    if (preloadTimerOneRef.current) {
+      clearTimeout(preloadTimerOneRef.current);
+      preloadTimerOneRef.current = null;
+    }
+    if (preloadTimerTwoRef.current) {
+      clearTimeout(preloadTimerTwoRef.current);
+      preloadTimerTwoRef.current = null;
+    }
+  }, []);
+
   const onCardHoverStart = useCallback(
     (item: SimpleCarouselItem) => {
       if (Platform.OS !== 'web') return;
@@ -123,6 +138,38 @@ export function SimpleCarouselTest() {
   );
 
   useEffect(() => {
+    clearPreloadTimers();
+    setPreloadVideoUris([]);
+
+    if (!items.length) return;
+    // Preload around current item:
+    // + after 1s: previous 1 and next 1
+    // + after 2s: previous 2 and next 2
+    // This wraps automatically, so index 0 preloads the last items too.
+    const previousOneVideoUri = items[(activeIndex - 1 + items.length) % items.length]?.videoUri;
+    const nextOneVideoUri = items[(activeIndex + 1) % items.length]?.videoUri;
+    const previousTwoVideoUri = items[(activeIndex - 2 + items.length) % items.length]?.videoUri;
+    const nextTwoVideoUri = items[(activeIndex + 2) % items.length]?.videoUri;
+
+    const firstBatch = [previousOneVideoUri, nextOneVideoUri].filter(Boolean) as string[];
+    const secondBatch = [previousTwoVideoUri, nextTwoVideoUri].filter(Boolean) as string[];
+    const mergedPreloadBatch = [...firstBatch, ...secondBatch];
+
+    if (mergedPreloadBatch.length) {
+      setPreloadVideoUris((previous) =>
+        mergedPreloadBatch.reduce(
+          (accumulator, uri) => (accumulator.includes(uri) ? accumulator : [...accumulator, uri]),
+          previous
+        )
+      );
+    }
+
+    return () => {
+      clearPreloadTimers();
+    };
+  }, [activeIndex, clearPreloadTimers, items]);
+
+  useEffect(() => {
     // Orientation/layout changes can leave loop/parallax internal cache stale.
     // Reset transient navigation state so remount starts from stable state.
     isNavigatingRef.current = false;
@@ -133,16 +180,19 @@ export function SimpleCarouselTest() {
       clearTimeout(unlockTimerRef.current);
       unlockTimerRef.current = null;
     }
-  }, [carouselLayoutKey, clearHoverTimer]);
+    clearPreloadTimers();
+    setPreloadVideoUris([]);
+  }, [carouselLayoutKey, clearHoverTimer, clearPreloadTimers]);
 
   useEffect(() => {
     return () => {
       clearHoverTimer();
+      clearPreloadTimers();
       if (unlockTimerRef.current) {
         clearTimeout(unlockTimerRef.current);
       }
     };
-  }, [clearHoverTimer]);
+  }, [clearHoverTimer, clearPreloadTimers]);
 
   return (
     <View style={[styles.container, fullScreenContainerStyle]} {...wheelCaptureProps}>
@@ -183,6 +233,20 @@ export function SimpleCarouselTest() {
         windowSize={5}
         width={itemWidth}
       />
+      <View pointerEvents="none" style={styles.preloadContainer}>
+        {preloadVideoUris.map((uri) => (
+          <Video
+            isLooping={false}
+            isMuted
+            key={`preload-${uri}`}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={false}
+            source={{ uri }}
+            style={styles.preloadVideo}
+            useNativeControls={false}
+          />
+        ))}
+      </View>
     </View>
   );
 }
@@ -206,6 +270,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    
+  },
+  preloadContainer: {
+    height: 1,
+    left: -9999,
+    opacity: 0,
+    position: 'absolute',
+    top: -9999,
+    width: 1,
+  },
+  preloadVideo: {
+    height: 1,
+    width: 1,
   },
 });

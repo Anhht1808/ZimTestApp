@@ -26,10 +26,22 @@ export function SimpleCarouselCard({
   const imageOpacity = useRef(new Animated.Value(1)).current;
   const videoOpacity = useRef(new Animated.Value(0)).current;
   const isCurrentRef = useRef(isCurrent);
+  const videoSlowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [hasVideoBeenActivated, setHasVideoBeenActivated] = useState(false);
   const [hasVideoRenderedFrame, setHasVideoRenderedFrame] = useState(false);
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [isVideoSlow, setIsVideoSlow] = useState(false);
+  const [isVideoErrored, setIsVideoErrored] = useState(false);
+  const [videoRetryKey, setVideoRetryKey] = useState(0);
   const [isPosterErrored, setIsPosterErrored] = useState(false);
+
+  const clearVideoSlowTimer = () => {
+    if (videoSlowTimerRef.current) {
+      clearTimeout(videoSlowTimerRef.current);
+      videoSlowTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     isCurrentRef.current = isCurrent;
@@ -47,10 +59,15 @@ export function SimpleCarouselCard({
   useEffect(() => {
     setHasVideoBeenActivated(false);
     setHasVideoRenderedFrame(false);
+    setIsVideoLoading(false);
+    setIsVideoSlow(false);
+    setIsVideoErrored(false);
+    setVideoRetryKey(0);
     setIsPosterErrored(false);
     setIsPaused(false);
     imageOpacity.setValue(1);
     videoOpacity.setValue(0);
+    clearVideoSlowTimer();
   }, [imageOpacity, item.id, videoOpacity]);
 
   useEffect(() => {
@@ -60,12 +77,47 @@ export function SimpleCarouselCard({
     }
   }, [hasVideoBeenActivated, isCurrent, item.videoUri]);
 
+  useEffect(() => {
+    if (!isCurrent || !hasVideoBeenActivated || hasVideoRenderedFrame || isVideoErrored) {
+      clearVideoSlowTimer();
+      setIsVideoSlow(false);
+      return;
+    }
+
+    setIsVideoLoading(true);
+    clearVideoSlowTimer();
+    // Show explicit feedback for slow networks on Android/web.
+    videoSlowTimerRef.current = setTimeout(() => {
+      setIsVideoSlow(true);
+    }, 4000);
+
+    return () => {
+      clearVideoSlowTimer();
+    };
+  }, [hasVideoBeenActivated, hasVideoRenderedFrame, isCurrent, isVideoErrored]);
+
+  useEffect(() => {
+    return () => {
+      clearVideoSlowTimer();
+    };
+  }, []);
+
   const togglePauseCurrentVideo = () => {
     setIsPaused((previous) => !previous);
   };
 
   const handleCardPress = () => {
     if (isCurrent && item.videoUri) {
+      if (isVideoErrored) {
+        setVideoRetryKey((previous) => previous + 1);
+        setIsVideoErrored(false);
+        setIsVideoSlow(false);
+        setIsVideoLoading(true);
+        imageOpacity.setValue(1);
+        videoOpacity.setValue(0);
+        return;
+      }
+      if (!hasVideoRenderedFrame) return;
       togglePauseCurrentVideo();
       return;
     }
@@ -75,6 +127,10 @@ export function SimpleCarouselCard({
   const handleVideoReady = () => {
     // Guard late events: if user already swiped away, keep image visible.
     if (!isCurrentRef.current && !hasVideoBeenActivated) return;
+    clearVideoSlowTimer();
+    setIsVideoErrored(false);
+    setIsVideoLoading(false);
+    setIsVideoSlow(false);
     setHasVideoRenderedFrame(true);
 
     // Cross-fade from poster image to video once the first frame is ready.
@@ -90,6 +146,21 @@ export function SimpleCarouselCard({
         useNativeDriver: true,
       }),
     ]).start();
+  };
+
+  const handleVideoLoadStart = () => {
+    setIsVideoLoading(true);
+    setIsVideoErrored(false);
+  };
+
+  const handleVideoError = () => {
+    clearVideoSlowTimer();
+    setIsVideoErrored(true);
+    setIsVideoLoading(false);
+    setIsVideoSlow(false);
+    setHasVideoRenderedFrame(false);
+    imageOpacity.setValue(1);
+    videoOpacity.setValue(0);
   };
 
   const posterUri = isPosterErrored
@@ -115,8 +186,11 @@ export function SimpleCarouselCard({
       {shouldMountVideo ? (
         <Animated.View style={[styles.videoLayer, { opacity: videoOpacity }]}>
           <Video
+            key={`video-${item.id}-${videoRetryKey}`}
             isLooping
             isMuted
+            onError={handleVideoError}
+            onLoadStart={handleVideoLoadStart}
             onReadyForDisplay={handleVideoReady}
             resizeMode={ResizeMode.COVER}
             shouldPlay={shouldPlayVideo}
@@ -134,6 +208,16 @@ export function SimpleCarouselCard({
           <ThemedText style={styles.loadingText}>Loading...</ThemedText>
         </View>
       )}
+      {isCurrent && item.videoUri && !hasVideoRenderedFrame && (isVideoLoading || isVideoSlow || isVideoErrored) ? (
+        <View style={styles.videoLoadingOverlay}>
+          {!isVideoErrored ? <ActivityIndicator color="#ffffff" size="small" /> : null}
+          {isVideoErrored ? (
+            <ThemedText style={styles.videoLoadingText}>
+              Video error. Please try again.
+            </ThemedText>
+          ) : null}
+        </View>
+      ) : null}
       <View style={styles.content}>
         <ThemedText type="defaultSemiBold" style={styles.title}>
           {item.title}
@@ -200,6 +284,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 8,
+  },
+  videoLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.28)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  videoLoadingText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 8,
+    textAlign: 'center',
   },
   content: {
     bottom: 14,

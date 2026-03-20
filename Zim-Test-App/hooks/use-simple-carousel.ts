@@ -7,7 +7,7 @@ export type SimpleCarouselItem = {
   subtitle: string;
   imageUri: string;
   thumbnailUri?: string;
-  videoUri?: string;
+  videoUri: string;
 };
 
 const BASE_ITEMS: SimpleCarouselItem[] = [
