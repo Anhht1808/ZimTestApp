@@ -8,7 +8,7 @@ Dự án demo Story Carousel đa nền tảng sử dụng Expo (React Native), t
 
 Bạn có thể tải và trải nghiệm bản build Android tại đây:
 
-👉 https://expo.dev/accounts/handez/projects/Zim-Test-App/builds/c5ea5b74-708a-4da7-bd0d-92e21947b148
+👉 https://expo.dev/accounts/handez/projects/Zim-Test-App/builds/4db622e1-f88e-4fcf-b9e9-52cfff7852a0
 
 Hoặc quét mã QR bên dưới để tải nhanh:
 
