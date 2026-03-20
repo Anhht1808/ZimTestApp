@@ -6,6 +6,7 @@ export type SimpleCarouselItem = {
   title: string;
   subtitle: string;
   imageUri: string;
+  videoUri?: string;
 };
 
 const BASE_ITEMS: SimpleCarouselItem[] = [
@@ -15,6 +16,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Lop hoc buoi toi',
     imageUri:
       'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=900&q=80',
+      videoUri: '',
   },
   {
     id: '2',

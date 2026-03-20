@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import Carousel, { type ICarouselInstance } from 'react-native-reanimated-carousel';
 
@@ -9,13 +9,17 @@ import { useSimpleCarousel, type SimpleCarouselItem } from '@/hooks/use-simple-c
 import { SimpleCarouselCard } from './simple-carousel-card';
 
 const NAVIGATION_FALLBACK_UNLOCK_MS = 900;
+const HOVER_NAVIGATE_DELAY_MS = 1000;
 
 export function SimpleCarouselTest() {
   const { items, itemHeight, itemWidth, sliderHeight, sliderWidth } = useSimpleCarousel();
   const carouselRef = useRef<ICarouselInstance>(null);
   const activeIndexRef = useRef(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [hoverLoadingItemId, setHoverLoadingItemId] = useState<string | null>(null);
   const isNavigatingRef = useRef(false);
   const queuedTargetIndexRef = useRef<number | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCaptureProps = useCarouselWheel(carouselRef);
   const fullScreenContainerStyle = useMemo(
@@ -47,6 +51,7 @@ export function SimpleCarouselTest() {
       const stepCount = forwardSteps <= backwardSteps ? forwardSteps : -backwardSteps;
       if (!stepCount) return;
 
+      setHoverLoadingItemId(null);
       isNavigatingRef.current = true;
       carouselRef.current?.scrollTo({ animated: true, count: stepCount });
 
@@ -65,26 +70,59 @@ export function SimpleCarouselTest() {
     [getCurrentCarouselIndex, items.length]
   );
 
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+
+  const onCardHoverStart = useCallback(
+    (item: SimpleCarouselItem) => {
+      if (Platform.OS !== 'web') return;
+
+      const targetIndex = items.findIndex((entry) => entry.id === item.id);
+      if (targetIndex < 0 || targetIndex === activeIndexRef.current) return;
+
+      clearHoverTimer();
+      setHoverLoadingItemId(item.id);
+      hoverTimerRef.current = setTimeout(() => {
+        navigateToTargetIndex(targetIndex);
+      }, HOVER_NAVIGATE_DELAY_MS);
+    },
+    [clearHoverTimer, items, navigateToTargetIndex]
+  );
+
+  const onCardHoverEnd = useCallback(() => {
+    clearHoverTimer();
+    setHoverLoadingItemId(null);
+  }, [clearHoverTimer]);
+
   const renderItem = useCallback(
     ({ item }: { item: SimpleCarouselItem; index: number }) => (
       <SimpleCarouselCard
+        isCurrent={items[activeIndex]?.id === item.id}
+        isHoverLoading={hoverLoadingItemId === item.id}
         item={item}
+        onHoverEnd={onCardHoverEnd}
+        onHoverStart={() => onCardHoverStart(item)}
         onPress={() => {
           const targetIndex = items.findIndex((entry) => entry.id === item.id);
           navigateToTargetIndex(targetIndex);
         }}
       />
     ),
-    [items, navigateToTargetIndex]
+    [activeIndex, hoverLoadingItemId, items, navigateToTargetIndex, onCardHoverEnd, onCardHoverStart]
   );
 
   useEffect(() => {
     return () => {
+      clearHoverTimer();
       if (unlockTimerRef.current) {
         clearTimeout(unlockTimerRef.current);
       }
     };
-  }, []);
+  }, [clearHoverTimer]);
 
   return (
     <View style={[styles.container, fullScreenContainerStyle]} {...wheelCaptureProps}>
@@ -95,13 +133,15 @@ export function SimpleCarouselTest() {
       </View>
       <Carousel
         ref={carouselRef}
-        autoPlay={Platform.OS === 'web'}
+        // autoPlay={Platform.OS === 'web'}
         data={items}
         height={itemHeight}
         loop
         mode="parallax"
         onSnapToItem={(index) => {
           activeIndexRef.current = index;
+          setActiveIndex(index);
+          setHoverLoadingItemId(null);
           if (isNavigatingRef.current) {
             isNavigatingRef.current = false;
             if (unlockTimerRef.current) {
