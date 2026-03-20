@@ -16,7 +16,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Lop hoc buoi toi',
     imageUri:
       'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=900&q=80',
-      videoUri: '',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '2',
@@ -24,6 +24,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'On bai theo nhom',
     imageUri:
       'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=900&q=80', // UPDATED
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '3',
@@ -31,6 +32,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Tai lieu luyen thi',
     imageUri:
       'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=900&q=80',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '4',
@@ -38,6 +40,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Luyen noi moi ngay',
     imageUri:
       'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=900&q=80',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '5',
@@ -45,6 +48,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Tang toc do Reading',
     imageUri:
       'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=900&q=80',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '6',
@@ -52,6 +56,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Mo ta bieu do',
     imageUri:
       'https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=900&q=80',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '7',
@@ -59,6 +64,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Luyen essay',
     imageUri:
       'https://images.unsplash.com/photo-1517430816045-df4b7de11d1d?auto=format&fit=crop&w=900&q=80',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '8',
@@ -66,6 +72,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Nghe moi ngay',
     imageUri:
       'https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=900&q=80',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '9',
@@ -73,6 +80,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Nho nhanh tu moi',
     imageUri:
       'https://images.unsplash.com/photo-1509228627152-72ae9ae6848d?auto=format&fit=crop&w=900&q=80',
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
   {
     id: '10',
@@ -80,6 +88,7 @@ const BASE_ITEMS: SimpleCarouselItem[] = [
     subtitle: 'Thi thu IELTS',
     imageUri:
       'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?auto=format&fit=crop&w=900&q=80', // UPDATED
+    videoUri: 'https://www.w3schools.com/html/mov_bbb.mp4',
   },
 ];
 const CARD_RATIO_WIDTH = 422;

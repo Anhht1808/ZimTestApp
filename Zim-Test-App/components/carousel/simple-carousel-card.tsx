@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
+import { ResizeMode, Video } from 'expo-av';
 import { ThemedText } from '@/components/themed-text';
 import { SimpleCarouselItem } from '@/hooks/use-simple-carousel';
 
@@ -22,6 +23,9 @@ export function SimpleCarouselCard({
   onPress,
 }: SimpleCarouselCardProps) {
   const inactiveBackdropOpacity = useRef(new Animated.Value(isCurrent ? 0 : 1)).current;
+  const imageOpacity = useRef(new Animated.Value(1)).current;
+  const videoOpacity = useRef(new Animated.Value(0)).current;
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
     Animated.timing(inactiveBackdropOpacity, {
@@ -31,9 +35,60 @@ export function SimpleCarouselCard({
     }).start();
   }, [inactiveBackdropOpacity, isCurrent]);
 
+  useEffect(() => {
+    if (!isCurrent) {
+      setIsPaused(false);
+      imageOpacity.setValue(1);
+      videoOpacity.setValue(0);
+    }
+  }, [imageOpacity, isCurrent, videoOpacity]);
+
+  const togglePauseCurrentVideo = () => {
+    setIsPaused((previous) => !previous);
+  };
+
+  const handleCardPress = () => {
+    if (isCurrent && item.videoUri) {
+      togglePauseCurrentVideo();
+      return;
+    }
+    onPress?.();
+  };
+
+  const handleVideoReady = () => {
+    Animated.parallel([
+      Animated.timing(imageOpacity, {
+        duration: 260,
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+      Animated.timing(videoOpacity, {
+        duration: 260,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
   return (
-    <Pressable onHoverIn={onHoverStart} onHoverOut={onHoverEnd} onPress={onPress} style={styles.card}>
-      <Image contentFit="cover" source={{ uri: item.imageUri }} style={styles.image} />
+    <Pressable onHoverIn={onHoverStart} onHoverOut={onHoverEnd} onPress={handleCardPress} style={styles.card}>
+      <Animated.View style={[styles.imageLayer, { opacity: imageOpacity }]}>
+        <Image contentFit="cover" source={{ uri: item.imageUri }} style={styles.image} />
+      </Animated.View>
+      {isCurrent && item.videoUri ? (
+        <Animated.View style={[styles.videoLayer, { opacity: videoOpacity }]}>
+          <Video
+            isLooping
+            isMuted
+            onReadyForDisplay={handleVideoReady}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={!isPaused}
+            source={{ uri: item.videoUri }}
+            style={styles.video}
+            useNativeControls={false}
+          />
+        </Animated.View>
+      ) : null}
       <View style={styles.overlay} />
       <Animated.View pointerEvents="none" style={[styles.inactiveBackdrop, { opacity: inactiveBackdropOpacity }]} />
       {isHoverLoading && (
@@ -53,6 +108,13 @@ export function SimpleCarouselCard({
       <ThemedText type="defaultSemiBold" style={styles.topTag}>
         {item.id}
       </ThemedText>
+      {isCurrent && item.videoUri ? (
+        <View style={styles.videoStateBadge}>
+          <ThemedText style={styles.videoStateText}>
+            {isPaused ? 'Play' : 'Pause'}
+          </ThemedText>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -71,6 +133,16 @@ const styles = StyleSheet.create({
   image: {
     height: '100%',
     width: '100%',
+  },
+  imageLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  video: {
+    height: '100%',
+    width: '100%',
+  },
+  videoLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -103,6 +175,20 @@ const styles = StyleSheet.create({
     left: 12,
     position: 'absolute',
     top: 12,
+  },
+  videoStateBadge: {
+    backgroundColor: 'rgba(15, 23, 42, 0.68)',
+    borderRadius: 999,
+    bottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    position: 'absolute',
+    right: 12,
+  },
+  videoStateText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   title: {
     color: '#ffffff',
