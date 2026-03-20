@@ -22,6 +22,10 @@ export function SimpleCarouselTest() {
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wheelCaptureProps = useCarouselWheel(carouselRef);
+  const carouselLayoutKey = useMemo(
+    () => `carousel-${Math.round(sliderWidth)}x${Math.round(sliderHeight)}-${Math.round(itemWidth)}x${Math.round(itemHeight)}`,
+    [itemHeight, itemWidth, sliderHeight, sliderWidth]
+  );
   const fullScreenContainerStyle = useMemo(
     () => ({ height: sliderHeight, width: sliderWidth }),
     [sliderHeight, sliderWidth]
@@ -116,6 +120,19 @@ export function SimpleCarouselTest() {
   );
 
   useEffect(() => {
+    // Orientation/layout changes can leave loop/parallax internal cache stale.
+    // Reset transient navigation state so remount starts from stable state.
+    isNavigatingRef.current = false;
+    queuedTargetIndexRef.current = null;
+    setHoverLoadingItemId(null);
+    clearHoverTimer();
+    if (unlockTimerRef.current) {
+      clearTimeout(unlockTimerRef.current);
+      unlockTimerRef.current = null;
+    }
+  }, [carouselLayoutKey, clearHoverTimer]);
+
+  useEffect(() => {
     return () => {
       clearHoverTimer();
       if (unlockTimerRef.current) {
@@ -132,9 +149,11 @@ export function SimpleCarouselTest() {
         </ThemedText>
       </View>
       <Carousel
+        key={carouselLayoutKey}
         ref={carouselRef}
         // autoPlay={Platform.OS === 'web'}
         data={items}
+        defaultIndex={activeIndexRef.current}
         height={itemHeight}
         loop
         mode="parallax"
